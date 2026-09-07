@@ -1,2 +1,3 @@
-timeout 3 /nobreak > nul
-start mark.exe
+@echo off
+timeout /t 5 /nobreak > nul
+start "" mark.exe
