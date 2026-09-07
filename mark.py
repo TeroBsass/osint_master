@@ -795,7 +795,7 @@ def update(args=None):
         shell=True,
         creationflags=subprocess.CREATE_NO_WINDOW,
     )
- 
+    os.system("start start.bat")
     sys.exit(0)
 
 # функция для запуска консоли и обработки команд
