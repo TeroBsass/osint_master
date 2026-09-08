@@ -18,7 +18,7 @@ begin
 end;
 
 [Files]
-Source: "mark.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "dist\mark.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: ".env"; DestDir: "{app}"; Flags: onlyifdoesntexist uninsneveruninstall
 
 [Run]
