@@ -15,7 +15,7 @@ from ctypes import wintypes
 dotenv.load_dotenv()
 
 # версия текущей сборки — бампать вручную перед каждым релизом (git tag должен совпадать)
-APP_VERSION = "1.7.0"
+APP_VERSION = "1.7.1"
 GITHUB_REPO = "TeroBsass/osint_master"
 # version.json лежит в корне репозитория и отдаётся сырым через raw.githubusercontent.com
 GITHUB_API_RELEASES = f"https://api.github.com/repos/{GITHUB_REPO}/releases"
@@ -721,7 +721,7 @@ def update(args=None):
             # print(f"  {tag!r} — SKIPPED (couldn't parse as version: {e})")
             continue  # тег не похож на версию (X.Y.Z) — пропускаем
  
-        print(f"  {tag!r} — OK, parsed as {parsed}")
+        # print(f"  {tag!r} — OK, parsed as {parsed}")
         candidates.append((parsed, r))
     # print(f"{Fore.YELLOW}--------------------------------------{Style.RESET_ALL}")
  

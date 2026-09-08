@@ -4,7 +4,7 @@ AppName=Osint Master
 AppVersion={#MyAppVersion}
 DefaultDirName={autopf}\Osint Master
 CloseApplications=no
-PrivilegesRequired=admin
+PrivilegesRequired=lowest
 OutputBaseFilename=MarkSetup
 
 [Code]
@@ -16,6 +16,9 @@ begin
   Sleep(1500);
   Result := True;
 end;
+
+[Icons]
+Name: "{autodesktop}\Osint Master"; Filename: "{app}\mark.exe"
 
 [Files]
 Source: "dist\mark.exe"; DestDir: "{app}"; Flags: ignoreversion
