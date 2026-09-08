@@ -14,10 +14,10 @@ from ctypes import wintypes
 dotenv.load_dotenv()
 
 # версия текущей сборки — бампать вручную перед каждым релизом (git tag должен совпадать)
-APP_VERSION = "1.5.8"
+APP_VERSION = "1.5.9"
 GITHUB_REPO = "TeroBsass/osint_master"
 # version.json лежит в корне репозитория и отдаётся сырым через raw.githubusercontent.com
-GITHUB_API_LATEST = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
+GITHUB_API_RELEASES = f"https://api.github.com/repos/{GITHUB_REPO}/releases/"
 
 
 # защищенный вызов hwid.get_hwi d() с обработкой ошибок
@@ -692,15 +692,37 @@ def update(args=None):
  
     try:
         req = urllib.request.Request(
-            GITHUB_API_LATEST,
+            GITHUB_API_RELEASES,
             headers={"Accept": "application/vnd.github+json", "User-Agent": "update-checker"},
         )
         with urllib.request.urlopen(req, timeout=10) as resp:
-            release = json.loads(resp.read().decode("utf-8"))
+            all_releases = json.loads(resp.read().decode("utf-8"))
     except Exception as e:
         print(f"{Fore.RED}Could not check for updates: {e}{Style.RESET_ALL}")
         console_start()
         return
+ 
+    # Отбрасываем черновики и pre-release, среди оставшихся берём релиз с
+    # МАКСИМАЛЬНЫМ номером версии по тегу — а не тот, что GitHub считает
+    # "latest" (это разные вещи, см. пояснение в шапке файла).
+    candidates = []
+    for r in all_releases:
+        if r.get("draft") or r.get("prerelease"):
+            continue
+        tag = r.get("tag_name", "")
+        try:
+            parsed = _parse_version(tag)
+        except (ValueError, AttributeError):
+            continue  # тег не похож на версию (X.Y.Z) — пропускаем
+        candidates.append((parsed, r))
+ 
+    if not candidates:
+        print(f"{Fore.RED}No valid published releases found on GitHub.{Style.RESET_ALL}")
+        console_start()
+        return
+ 
+    candidates.sort(key=lambda item: item[0])
+    _, release = candidates[-1]
  
     remote_version = release.get("tag_name", "").lstrip("v")
     assets = release.get("assets", [])

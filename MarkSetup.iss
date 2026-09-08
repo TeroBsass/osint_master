@@ -22,4 +22,4 @@ Source: "mark.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: ".env"; DestDir: "{app}"; Flags: onlyifdoesntexist uninsneveruninstall
 
 [Run]
-Filename: "{app}\mark.exe"; Flags: nowait
+Filename: "{app}\mark.exe"; Flags: nowait runasoriginaluser
