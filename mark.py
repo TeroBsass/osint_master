@@ -1,6 +1,7 @@
 import datetime
 from dis import pretty_flags
 import json
+import tempfile
 from turtle import title
 from typing import Type
 import hwid, getpass, psycopg2, os, time, sys, random
@@ -13,7 +14,7 @@ from ctypes import wintypes
 dotenv.load_dotenv()
 
 # версия текущей сборки — бампать вручную перед каждым релизом (git tag должен совпадать)
-APP_VERSION = "1.4.4"
+APP_VERSION = "1.4.5"
 GITHUB_REPO = "TeroBsass/osint_master"
 # version.json лежит в корне репозитория и отдаётся сырым через raw.githubusercontent.com
 GITHUB_API_LATEST = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
@@ -678,26 +679,15 @@ ALWAYS_OVERWRITE_ENV = False
  
 def _parse_version(v):
     return tuple(int(p) for p in v.strip().lstrip("v").split("."))
-
-
-def _replace_with_retry(src, dst, attempts=5, delay=0.5):
-    """os.replace с повторными попытками — на Windows файл, который только что
-    скачался или всё ещё исполняется, может быть на мгновение залочен антивирусом
-    или самой ОС."""
-    last_err = None
-    for _ in range(attempts):
-        try:
-            os.replace(src, dst)
-            return
-        except OSError as e:
-            last_err = e
-            time.sleep(delay)
-    raise last_err
  
  
 def update(args=None):
-    """Проверяет GitHub Releases и, если есть новая версия, скачивает exe
-    (и .env, если его ещё нет рядом) и ставит exe вместо текущего."""
+    """Проверяет GitHub Releases и, если есть новая версия, скачивает
+    инсталлятор (.exe, собранный Inno Setup) и запускает его. Дальше всю
+    работу — закрытие текущего процесса, замену файлов, перезапуск
+    приложения — делает сам инсталлятор (CloseApplications / RestartApplications),
+    поэтому никакой ручной возни с переименованием exe и батниками не нужно."""
+ 
     print(f"{Fore.YELLOW}Checking for updates (current version: {APP_VERSION})...{Style.RESET_ALL}")
  
     try:
@@ -714,11 +704,10 @@ def update(args=None):
  
     remote_version = release.get("tag_name", "").lstrip("v")
     assets = release.get("assets", [])
-    exe_asset = next((a for a in assets if a.get("name", "").endswith(".exe")), None)
-    env_asset = next((a for a in assets if a.get("name", "") == ".env"), None)
+    setup_asset = next((a for a in assets if a.get("name", "").endswith("Setup.exe")), None)
  
-    if not remote_version or not exe_asset:
-        print(f"{Fore.RED}No release/exe asset found on GitHub.{Style.RESET_ALL}")
+    if not remote_version or not setup_asset:
+        print(f"{Fore.RED}No release/installer asset found on GitHub.{Style.RESET_ALL}")
         console_start()
         return
  
@@ -740,68 +729,51 @@ def update(args=None):
         console_start()
         return
  
-    current_exe = sys.executable
-    exe_dir = os.path.dirname(current_exe)
-    new_exe = current_exe + ".new"
-    old_exe = current_exe + ".old"
+    setup_path = os.path.join(tempfile.gettempdir(), "MarkSetup.exe")
  
-    # подчищаем хвост от прошлого обновления, если остался (мог не удалиться,
-    # пока старый процесс ещё не до конца закрылся)
-    if os.path.exists(old_exe):
+    # подчищаем хвост от прошлого обновления, если остался
+    if os.path.exists(setup_path):
         try:
-            os.remove(old_exe)
+            os.remove(setup_path)
         except OSError:
             pass
  
     try:
-        print(f"{Fore.YELLOW}Downloading update...{Style.RESET_ALL}")
-        urllib.request.urlretrieve(exe_asset["browser_download_url"], new_exe)
+        print(f"{Fore.YELLOW}Downloading installer...{Style.RESET_ALL}")
+        urllib.request.urlretrieve(setup_asset["browser_download_url"], setup_path)
     except Exception as e:
         print(f"{Fore.RED}Download failed: {e}{Style.RESET_ALL}")
         console_start()
         return
  
-    if env_asset:
-        env_path = os.path.join(exe_dir, ".env")
-        if ALWAYS_OVERWRITE_ENV or not os.path.exists(env_path):
-            try:
-                print(f"{Fore.YELLOW}Downloading .env...{Style.RESET_ALL}")
-                urllib.request.urlretrieve(env_asset["browser_download_url"], env_path)
-            except Exception as e:
-                print(f"{Fore.RED}.env download failed (continuing anyway): {e}{Style.RESET_ALL}")
+    print(f"{Fore.GREEN}Updating to {remote_version}. Launching installer...{Style.RESET_ALL}")
  
-    try:
-        # шаг 1: убираем текущий работающий exe с дороги (rename разрешён
-        # даже для исполняемого файла на Windows) — перезаписать его
-        # напрямую os.replace(new_exe, current_exe) нельзя, будет Access denied
-        _replace_with_retry(current_exe, old_exe)
-        # шаг 2: ставим новый exe на каноническое имя
-        _replace_with_retry(new_exe, current_exe)
-    except OSError as e:
-        print(f"{Fore.RED}Could not replace the executable: {e}{Style.RESET_ALL}")
-        # пробуем откатиться, если новый файл не встал на место
-        if os.path.exists(old_exe) and not os.path.exists(current_exe):
-            os.replace(old_exe, current_exe)
+    # ShellExecuteW с verb "runas" — а не subprocess.Popen/os.system — по двум причинам:
+    #   1) инсталлятор помечен в манифесте как requireAdministrator (PrivilegesRequired=admin
+    #      в .iss), а CreateProcess (на чём базируется Popen) сам его не поднимет —
+    #      без ShellExecute+"runas" получите ERROR_ELEVATION_REQUIRED;
+    #   2) элевированный процесс создаётся через системную службу AppInfo/consent.exe,
+    #      а не как прямой потомок текущего процесса — поэтому он не входит в Job Object
+    #      вашего PyInstaller-бандла и спокойно переживёт наш sys.exit(0) чуть ниже
+    #      (обычный дочерний процесс в этой ситуации Windows убивает вместе с родителем).
+    installer_args = "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /CLOSEAPPLICATIONS /RESTARTAPPLICATIONS"
+ 
+    result = ctypes.windll.shell32.ShellExecuteW(
+        None,          # hwnd
+        "runas",       # verb — запрашивает повышение прав (UAC)
+        setup_path,    # файл для запуска
+        installer_args,
+        None,          # рабочая директория — по умолчанию
+        1,             # SW_SHOWNORMAL
+    )
+ 
+    # ShellExecuteW возвращает значение > 32 при успехе, и код ошибки (<=32) при провале.
+    # Например 5 — пользователь отклонил запрос UAC.
+    if result <= 32:
+        print(f"{Fore.RED}Failed to launch installer (code {result}). Update aborted.{Style.RESET_ALL}")
         console_start()
         return
  
-    print(f"{Fore.GREEN}Updated to {remote_version}! Restarting...{Style.RESET_ALL}")
-    
-    # старый файл (.old) всё ещё занят текущим процессом — удалить сейчас не
-    # получится, поэтому просим cmd подождать, пока процесс закроется, и
-    # удалить его в фоне
-    subprocess.Popen(
-        f'cmd /c "timeout /t 2 >nul & del /f /q \"{old_exe}\""',
-        shell=True,
-        creationflags=subprocess.CREATE_NO_WINDOW,
-    )
-
-    bat_path = os.path.join(exe_dir, "start.bat")
-    subprocess.run([
-        "schtasks", "/create", "/tn", "MarkRelaunch", "/tr", f'"{bat_path}"',
-        "/sc", "once", "/st", (datetime.now() + datetime.timedelta(seconds=1)).strftime("%H:%M:%S"),
-        "/f",
-    ], cwd=exe_dir, creationflags=subprocess.CREATE_NO_WINDOW)
     sys.exit(0)
 
 # функция для запуска консоли и обработки команд
