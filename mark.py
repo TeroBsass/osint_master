@@ -45,7 +45,7 @@ def install_console_ctrl_handler():
         raise ctypes.WinError(ctypes.get_last_error())
 
 # версия текущей сборки — бампать вручную перед каждым релизом (git tag должен совпадать)
-APP_VERSION = "1.5.5"
+APP_VERSION = "1.5.6"
 GITHUB_REPO = "TeroBsass/osint_master"
 # version.json лежит в корне репозитория и отдаётся сырым через raw.githubusercontent.com
 GITHUB_API_LATEST = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
