@@ -1,3 +1,5 @@
 @echo off
 timeout /t 5 /nobreak > nul
-start "" mark.exe
+cd /d "%~dp0"
+start "" "mark.exe"
+ 
