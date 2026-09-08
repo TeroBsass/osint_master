@@ -14,7 +14,7 @@ from ctypes import wintypes
 dotenv.load_dotenv()
 
 # версия текущей сборки — бампать вручную перед каждым релизом (git tag должен совпадать)
-APP_VERSION = "1.4.9"
+APP_VERSION = "1.5.0"
 GITHUB_REPO = "TeroBsass/osint_master"
 # version.json лежит в корне репозитория и отдаётся сырым через raw.githubusercontent.com
 GITHUB_API_LATEST = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
@@ -706,13 +706,8 @@ def update(args=None):
     assets = release.get("assets", [])
     setup_asset = next((a for a in assets if a.get("name", "").endswith("Setup.exe")), None)
  
-    if not remote_version:
-        print(f"{Fore.RED}No tag_name in latest release (release published?).{Style.RESET_ALL}")
-        console_start()
-        return
-
-    if not setup_asset:
-        print(f"{Fore.RED}Assets in this release: {[a.get('name') for a in assets]}{Style.RESET_ALL}")
+    if not remote_version or not setup_asset:
+        print(f"{Fore.RED}No release/installer asset found on GitHub.{Style.RESET_ALL}")
         console_start()
         return
  
@@ -779,7 +774,30 @@ def update(args=None):
         console_start()
         return
  
-    sys.exit(0)
+    print(f"{Fore.YELLOW}Installer launched. Waiting to be closed and restarted automatically...{Style.RESET_ALL}")
+ 
+    # ВАЖНО: тут нельзя делать sys.exit(0) сразу. CloseApplications/RestartApplications
+    # в Inno Setup работают через Windows Restart Manager: Setup сам обнаруживает,
+    # какой процесс держит открытым mark.exe, закрывает именно его — и только
+    # ПОЭТОМУ потом знает, кого перезапустить после установки. Если мы сами
+    # выйдем раньше, чем Setup дойдёт до этого шага, Restart Manager просто не
+    # увидит наш процесс работающим и не запомнит его для перезапуска — apдейт
+    # пройдёт "в никуда", то есть ровно то, что вы наблюдали.
+    #
+    # Поэтому просто остаёмся висеть и ждём, пока инсталлятор нас не прибьёт
+    # сам (CTRL_CLOSE_EVENT от Restart Manager). Таймаут — на случай, если
+    # что-то пошло не так и закрытия не произошло (например, несовпадение
+    # CloseApplicationsFilter в .iss), чтобы не зависнуть навсегда.
+    timeout_seconds = 60
+    waited = 0
+    while waited < timeout_seconds:
+        time.sleep(1)
+        waited += 1
+ 
+    print(f"{Fore.RED}Installer did not close this process within {timeout_seconds}s — "
+          f"something may be wrong with CloseApplications in the .iss script. "
+          f"Please close and restart the app manually.{Style.RESET_ALL}")
+    console_start()
 
 # функция для запуска консоли и обработки команд
 def console_start(args=None):
