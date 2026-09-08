@@ -14,7 +14,7 @@ from ctypes import wintypes
 dotenv.load_dotenv()
 
 # версия текущей сборки — бампать вручную перед каждым релизом (git tag должен совпадать)
-APP_VERSION = "1.4.6"
+APP_VERSION = "1.4.7"
 GITHUB_REPO = "TeroBsass/osint_master"
 # version.json лежит в корне репозитория и отдаётся сырым через raw.githubusercontent.com
 GITHUB_API_LATEST = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
@@ -706,8 +706,13 @@ def update(args=None):
     assets = release.get("assets", [])
     setup_asset = next((a for a in assets if a.get("name", "").endswith("Setup.exe")), None)
  
-    if not remote_version or not setup_asset:
-        print(f"{Fore.RED}No release/installer asset found on GitHub.{Style.RESET_ALL}")
+    if not remote_version:
+        print(f"{Fore.RED}No tag_name in latest release (release published?).{Style.RESET_ALL}")
+        console_start()
+        return
+
+    if not setup_asset:
+        print(f"{Fore.RED}Assets in this release: {[a.get('name') for a in assets]}{Style.RESET_ALL}")
         console_start()
         return
  
