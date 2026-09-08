@@ -44,10 +44,8 @@ def install_console_ctrl_handler():
     if not ok:
         raise ctypes.WinError(ctypes.get_last_error())
 
-install_console_ctrl_handler()
-
 # версия текущей сборки — бампать вручную перед каждым релизом (git tag должен совпадать)
-APP_VERSION = "1.5.4"
+APP_VERSION = "1.5.5"
 GITHUB_REPO = "TeroBsass/osint_master"
 # version.json лежит в корне репозитория и отдаётся сырым через raw.githubusercontent.com
 GITHUB_API_LATEST = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
@@ -1171,6 +1169,7 @@ def start():
 
 # главная точка входа в программу
 if __name__ == "__main__":
+    install_console_ctrl_handler()
     if getattr(sys, "frozen", False):
         # чистим хвост от предыдущего update() — старый процесс уже закрылся,
         # так что файл теперь можно удалить
