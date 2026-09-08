@@ -4,7 +4,7 @@ AppName=Osint Master
 AppVersion={#MyAppVersion}
 DefaultDirName={autopf}\Osint Master
 CloseApplications=no
-PrivilegesRequired=admin
+PrivilegesRequired=lowest
 OutputBaseFilename=MarkSetup
 
 [Code]
