@@ -12,7 +12,7 @@ from ctypes import wintypes
 dotenv.load_dotenv()
 
 # версия текущей сборки — бампать вручную перед каждым релизом (git tag должен совпадать)
-APP_VERSION = "1.3.8"
+APP_VERSION = "1.3.9"
 GITHUB_REPO = "TeroBsass/osint_master"
 # version.json лежит в корне репозитория и отдаётся сырым через raw.githubusercontent.com
 GITHUB_API_LATEST = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
@@ -785,8 +785,12 @@ def update(args=None):
         return
  
     print(f"{Fore.GREEN}Updated to {remote_version}! Restarting...{Style.RESET_ALL}")
-    subprocess.Popen([current_exe], creationflags=subprocess.CREATE_NEW_CONSOLE)
- 
+    bat_path = os.path.join(exe_dir, "start.bat")
+    subprocess.Popen(
+        ["cmd", "/c", "start", "", bat_path],
+        cwd=exe_dir,
+        creationflags=subprocess.CREATE_NEW_CONSOLE,
+    )
     # старый файл (.old) всё ещё занят текущим процессом — удалить сейчас не
     # получится, поэтому просим cmd подождать, пока процесс закроется, и
     # удалить его в фоне
@@ -795,7 +799,7 @@ def update(args=None):
         shell=True,
         creationflags=subprocess.CREATE_NO_WINDOW,
     )
-    os.system("start start.bat")
+    
     sys.exit(0)
 
 # функция для запуска консоли и обработки команд
