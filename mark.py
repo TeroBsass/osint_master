@@ -12,9 +12,42 @@ from psycopg2 import pool
 import threading, subprocess, ctypes, hashlib, urllib.request
 from ctypes import wintypes
 dotenv.load_dotenv()
+CTRL_C_EVENT = 0
+CTRL_BREAK_EVENT = 1
+CTRL_CLOSE_EVENT = 2
+CTRL_LOGOFF_EVENT = 5
+CTRL_SHUTDOWN_EVENT = 6
+ 
+_HANDLER_ROUTINE = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.DWORD)
+ 
+# Держим ссылку на объект-обработчик на уровне модуля, чтобы Python его не
+# собрал сборщиком мусора — иначе Windows будет дёргать уже освобождённую
+# функцию и процесс упадёт с access violation.
+_handler_ref = None
+ 
+ 
+def _console_ctrl_handler(ctrl_type):
+    if ctrl_type in (CTRL_CLOSE_EVENT, CTRL_LOGOFF_EVENT, CTRL_SHUTDOWN_EVENT):
+        # os._exit, а не sys.exit — нужно закрыться немедленно и без
+        # исключений/finally-блоков, которые в контексте отдельного потока
+        # обработчика консольных событий могут не отработать корректно.
+        os._exit(0)
+    # Для остальных событий (Ctrl+C и т.п.) отдаём False — пусть их
+    # обрабатывает следующий обработчик / поведение по умолчанию.
+    return False
+ 
+ 
+def install_console_ctrl_handler():
+    global _handler_ref
+    _handler_ref = _HANDLER_ROUTINE(_console_ctrl_handler)
+    ok = ctypes.windll.kernel32.SetConsoleCtrlHandler(_handler_ref, True)
+    if not ok:
+        raise ctypes.WinError(ctypes.get_last_error())
+
+install_console_ctrl_handler()
 
 # версия текущей сборки — бампать вручную перед каждым релизом (git tag должен совпадать)
-APP_VERSION = "1.5.3"
+APP_VERSION = "1.5.4"
 GITHUB_REPO = "TeroBsass/osint_master"
 # version.json лежит в корне репозитория и отдаётся сырым через raw.githubusercontent.com
 GITHUB_API_LATEST = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
