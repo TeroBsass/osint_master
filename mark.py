@@ -15,7 +15,7 @@ from ctypes import wintypes
 dotenv.load_dotenv()
 
 # версия текущей сборки — бампать вручную перед каждым релизом (git tag должен совпадать)
-APP_VERSION = "1.6.9"
+APP_VERSION = "1.7.0"
 GITHUB_REPO = "TeroBsass/osint_master"
 # version.json лежит в корне репозитория и отдаётся сырым через raw.githubusercontent.com
 GITHUB_API_RELEASES = f"https://api.github.com/repos/{GITHUB_REPO}/releases"
@@ -270,6 +270,8 @@ class SIMPLE_COMMANDS:
                 print(f"{Fore.RED}Unknown argument: --{key}{Style.RESET_ALL}")
             parsed[key] = value
         return parsed
+    def _parse_version(v):
+        return tuple(int(p) for p in v.strip().lstrip("v").split("."))
 
 
 # класс для работы с чатом
@@ -673,13 +675,6 @@ def handle_res_shut(reasons):
             
         finally:
             DB.release_connection(conn, broken=broken)
-
-
-ALWAYS_OVERWRITE_ENV = False
- 
- 
-def _parse_version(v):
-    return tuple(int(p) for p in v.strip().lstrip("v").split("."))
  
  
 def update(args=None):
@@ -707,7 +702,7 @@ def update(args=None):
     # МАКСИМАЛЬНЫМ номером версии по тегу — а не тот, что GitHub считает
     # "latest" (это разные вещи, см. пояснение в шапке файла).
     candidates = []
-    print(f"{Fore.YELLOW}--- Releases seen from GitHub API ---{Style.RESET_ALL}")
+    # print(f"{Fore.YELLOW}--- Releases seen from GitHub API ---{Style.RESET_ALL}")
     for r in all_releases:
         tag = r.get("tag_name", "")
         flags = []
@@ -717,18 +712,18 @@ def update(args=None):
             flags.append("PRERELEASE")
  
         if flags:
-            print(f"  {tag!r} — SKIPPED ({', '.join(flags)})")
+            # print(f"  {tag!r} — SKIPPED ({', '.join(flags)})")
             continue
  
         try:
-            parsed = _parse_version(tag)
+            parsed = SIMPLE_COMMANDS._parse_version(tag)
         except (ValueError, AttributeError) as e:
-            print(f"  {tag!r} — SKIPPED (couldn't parse as version: {e})")
+            # print(f"  {tag!r} — SKIPPED (couldn't parse as version: {e})")
             continue  # тег не похож на версию (X.Y.Z) — пропускаем
  
         print(f"  {tag!r} — OK, parsed as {parsed}")
         candidates.append((parsed, r))
-    print(f"{Fore.YELLOW}--------------------------------------{Style.RESET_ALL}")
+    # print(f"{Fore.YELLOW}--------------------------------------{Style.RESET_ALL}")
  
     if not candidates:
         print(f"{Fore.RED}No valid published releases found on GitHub.{Style.RESET_ALL}")
@@ -747,7 +742,7 @@ def update(args=None):
         console_start()
         return
  
-    if _parse_version(remote_version) <= _parse_version(APP_VERSION):
+    if SIMPLE_COMMANDS._parse_version(remote_version) <= SIMPLE_COMMANDS._parse_version(APP_VERSION):
         print(f"{Fore.GREEN}You are already on the latest version ({APP_VERSION}).{Style.RESET_ALL}")
         console_start()
         return
@@ -792,18 +787,17 @@ def update(args=None):
     #      а не как прямой потомок текущего процесса — поэтому он не входит в Job Object
     #      вашего PyInstaller-бандла и спокойно переживёт наш sys.exit(0) чуть ниже
     #      (обычный дочерний процесс в этой ситуации Windows убивает вместе с родителем).
-    log_path = os.path.join(tempfile.gettempdir(), "MarkSetup.log")
-    installer_args = (
-        "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /CLOSEAPPLICATIONS /RESTARTAPPLICATIONS "
-        f'/LOG="{log_path}"'
-    )
-    print(f"{Fore.YELLOW}Installer log will be written to: {log_path}{Style.RESET_ALL}")
+    # log_path = os.path.join(tempfile.gettempdir(), "MarkSetup.log")
+    # installer_args = (
+    #     "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /CLOSEAPPLICATIONS /RESTARTAPPLICATIONS "
+    #     f'/LOG="{log_path}"'
+    # )
+    # print(f"{Fore.YELLOW}Installer log will be written to: {log_path}{Style.RESET_ALL}")
  
     result = ctypes.windll.shell32.ShellExecuteW(
         None,          # hwnd
         "runas",       # verb — запрашивает повышение прав (UAC)
         setup_path,    # файл для запуска
-        installer_args,
         None,          # рабочая директория — по умолчанию
         1,             # SW_SHOWNORMAL
     )
