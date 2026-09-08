@@ -55,7 +55,12 @@ git add -A
 git commit -m "Release $VERSION" || echo "(нечего коммитить, идём дальше)"
 git push origin main
 
-echo -e "\e[34m== 2. Сборка exe ==\e[0m"
+echo -e "\e[34m== 2. Чистая пересборка exe ==\e[0m"
+# Удаляем всё, что осталось от прошлого релиза, ДО сборки — иначе при сбое
+# компиляции (тихом или нет) в Output/ может остаться старый файл от прошлой
+# версии, который потом безо всякой ошибки уйдёт в релиз под новым тегом
+# (именно так один раз в релиз 1.6.x улетел installer от 1.5.0).
+rm -rf dist build Output
 python -m PyInstaller --onefile "$ENTRY_SCRIPT"
 # .env НЕ передаётся через --add-data — он не должен попасть внутрь самого exe,
 # в инсталлятор он подкладывается отдельно, см. [Files] в $ISS_SCRIPT
@@ -70,6 +75,16 @@ BUILT_INSTALLER="Output/$INSTALLER_NAME"
 if [ ! -f "$BUILT_INSTALLER" ]; then
   echo -e "\e[31mИнсталлятор не найден там, где ожидался: $BUILT_INSTALLER\e[0m"
   echo -e "\e[31mПроверьте OutputDir/OutputBaseFilename в $ISS_SCRIPT.\e[0m"
+  exit 1
+fi
+
+# Доп. страховка: раз мы только что удалили Output/ перед сборкой, файл
+# физически не может быть старше нескольких секунд. Если он вдруг "старый" —
+# что-то пошло совсем не так (например, ISCC отработал из кеша/не там,
+# где ожидалось) — лучше остановиться, чем залить в релиз не то.
+BUILT_AGE=$(( $(date +%s) - $(date -r "$BUILT_INSTALLER" +%s) ))
+if [ "$BUILT_AGE" -gt 120 ]; then
+  echo -e "\e[31mСобранный $BUILT_INSTALLER выглядит старым (${BUILT_AGE}s) — похоже, это не свежая сборка. Останавливаюсь.\e[0m"
   exit 1
 fi
 
