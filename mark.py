@@ -1,9 +1,10 @@
-import datetime
+
 from dis import pretty_flags
 import json
 import tempfile
 from turtle import title
 from typing import Type
+import colorama
 import hwid, getpass, psycopg2, os, time, sys, random
 from art import text2art
 from colorama import Fore, Style
@@ -14,7 +15,7 @@ from ctypes import wintypes
 dotenv.load_dotenv()
 
 # версия текущей сборки — бампать вручную перед каждым релизом (git tag должен совпадать)
-APP_VERSION = "1.6.3"
+APP_VERSION = "1.6.4"
 GITHUB_REPO = "TeroBsass/osint_master"
 # version.json лежит в корне репозитория и отдаётся сырым через raw.githubusercontent.com
 GITHUB_API_RELEASES = f"https://api.github.com/repos/{GITHUB_REPO}/releases"
@@ -706,15 +707,28 @@ def update(args=None):
     # МАКСИМАЛЬНЫМ номером версии по тегу — а не тот, что GitHub считает
     # "latest" (это разные вещи, см. пояснение в шапке файла).
     candidates = []
+    print(f"{Fore.YELLOW}--- Releases seen from GitHub API ---{Style.RESET_ALL}")
     for r in all_releases:
-        if r.get("draft") or r.get("prerelease"):
-            continue
         tag = r.get("tag_name", "")
+        flags = []
+        if r.get("draft"):
+            flags.append("DRAFT")
+        if r.get("prerelease"):
+            flags.append("PRERELEASE")
+ 
+        if flags:
+            print(f"  {tag!r} — SKIPPED ({', '.join(flags)})")
+            continue
+ 
         try:
             parsed = _parse_version(tag)
-        except (ValueError, AttributeError):
+        except (ValueError, AttributeError) as e:
+            print(f"  {tag!r} — SKIPPED (couldn't parse as version: {e})")
             continue  # тег не похож на версию (X.Y.Z) — пропускаем
+ 
+        print(f"  {tag!r} — OK, parsed as {parsed}")
         candidates.append((parsed, r))
+    print(f"{Fore.YELLOW}--------------------------------------{Style.RESET_ALL}")
  
     if not candidates:
         print(f"{Fore.RED}No valid published releases found on GitHub.{Style.RESET_ALL}")
@@ -1147,6 +1161,7 @@ def start():
 
 # главная точка входа в программу
 if __name__ == "__main__":
+    colorama.init(convert=True, strip=False)
     if getattr(sys, "frozen", False):
         # чистим хвост от предыдущего update() — старый процесс уже закрылся,
         # так что файл теперь можно удалить
