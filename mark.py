@@ -1,3 +1,4 @@
+import datetime
 from dis import pretty_flags
 import json
 from turtle import title
@@ -12,7 +13,7 @@ from ctypes import wintypes
 dotenv.load_dotenv()
 
 # версия текущей сборки — бампать вручную перед каждым релизом (git tag должен совпадать)
-APP_VERSION = "1.4.1"
+APP_VERSION = "1.4.2"
 GITHUB_REPO = "TeroBsass/osint_master"
 # version.json лежит в корне репозитория и отдаётся сырым через raw.githubusercontent.com
 GITHUB_API_LATEST = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
@@ -794,18 +795,13 @@ def update(args=None):
         shell=True,
         creationflags=subprocess.CREATE_NO_WINDOW,
     )
-    CREATE_NEW_PROCESS_GROUP = 0x00000200
-    DETACHED_PROCESS = 0x00000008
-    CREATE_BREAKAWAY_FROM_JOB = 0x01000000
 
     bat_path = os.path.join(exe_dir, "start.bat")
-    subprocess.Popen(
-        ["cmd", "/c", "start", "", bat_path],
-        cwd=exe_dir,
-        creationflags=CREATE_NEW_PROCESS_GROUP | DETACHED_PROCESS | CREATE_BREAKAWAY_FROM_JOB,
-        close_fds=True,
-    )
-
+    subprocess.run([
+        "schtasks", "/create", "/tn", "MarkRelaunch", "/tr", f'"{bat_path}"',
+        "/sc", "once", "/st", (datetime.now() + datetime.timedelta(seconds=1)).strftime("%H:%M:%S"),
+        "/f",
+    ], cwd=exe_dir, creationflags=subprocess.CREATE_NO_WINDOW)
     sys.exit(0)
 
 # функция для запуска консоли и обработки команд
