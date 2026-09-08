@@ -14,7 +14,7 @@ from ctypes import wintypes
 dotenv.load_dotenv()
 
 # версия текущей сборки — бампать вручную перед каждым релизом (git tag должен совпадать)
-APP_VERSION = "1.5.1"
+APP_VERSION = "1.5.2"
 GITHUB_REPO = "TeroBsass/osint_master"
 # version.json лежит в корне репозитория и отдаётся сырым через raw.githubusercontent.com
 GITHUB_API_LATEST = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
@@ -756,7 +756,12 @@ def update(args=None):
     #      а не как прямой потомок текущего процесса — поэтому он не входит в Job Object
     #      вашего PyInstaller-бандла и спокойно переживёт наш sys.exit(0) чуть ниже
     #      (обычный дочерний процесс в этой ситуации Windows убивает вместе с родителем).
-    installer_args = "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /CLOSEAPPLICATIONS /RESTARTAPPLICATIONS"
+    log_path = os.path.join(tempfile.gettempdir(), "MarkSetup.log")
+    installer_args = (
+        "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /CLOSEAPPLICATIONS /RESTARTAPPLICATIONS "
+        f'/LOG="{log_path}"'
+    )
+    print(f"{Fore.YELLOW}Installer log will be written to: {log_path}{Style.RESET_ALL}")
  
     result = ctypes.windll.shell32.ShellExecuteW(
         None,          # hwnd
