@@ -12,40 +12,9 @@ from psycopg2 import pool
 import threading, subprocess, ctypes, hashlib, urllib.request
 from ctypes import wintypes
 dotenv.load_dotenv()
-CTRL_C_EVENT = 0
-CTRL_BREAK_EVENT = 1
-CTRL_CLOSE_EVENT = 2
-CTRL_LOGOFF_EVENT = 5
-CTRL_SHUTDOWN_EVENT = 6
- 
-_HANDLER_ROUTINE = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.DWORD)
- 
-# Держим ссылку на объект-обработчик на уровне модуля, чтобы Python его не
-# собрал сборщиком мусора — иначе Windows будет дёргать уже освобождённую
-# функцию и процесс упадёт с access violation.
-_handler_ref = None
- 
- 
-def _console_ctrl_handler(ctrl_type):
-    if ctrl_type in (CTRL_CLOSE_EVENT, CTRL_LOGOFF_EVENT, CTRL_SHUTDOWN_EVENT):
-        # os._exit, а не sys.exit — нужно закрыться немедленно и без
-        # исключений/finally-блоков, которые в контексте отдельного потока
-        # обработчика консольных событий могут не отработать корректно.
-        os._exit(0)
-    # Для остальных событий (Ctrl+C и т.п.) отдаём False — пусть их
-    # обрабатывает следующий обработчик / поведение по умолчанию.
-    return False
- 
- 
-def install_console_ctrl_handler():
-    global _handler_ref
-    _handler_ref = _HANDLER_ROUTINE(_console_ctrl_handler)
-    ok = ctypes.windll.kernel32.SetConsoleCtrlHandler(_handler_ref, True)
-    if not ok:
-        raise ctypes.WinError(ctypes.get_last_error())
 
 # версия текущей сборки — бампать вручную перед каждым релизом (git tag должен совпадать)
-APP_VERSION = "1.5.6"
+APP_VERSION = "1.5.7"
 GITHUB_REPO = "TeroBsass/osint_master"
 # version.json лежит в корне репозитория и отдаётся сырым через raw.githubusercontent.com
 GITHUB_API_LATEST = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
@@ -810,30 +779,17 @@ def update(args=None):
         console_start()
         return
  
-    print(f"{Fore.YELLOW}Installer launched. Waiting to be closed and restarted automatically...{Style.RESET_ALL}")
+    print(f"{Fore.YELLOW}Installer launched. Exiting so it can replace this file...{Style.RESET_ALL}")
  
-    # ВАЖНО: тут нельзя делать sys.exit(0) сразу. CloseApplications/RestartApplications
-    # в Inno Setup работают через Windows Restart Manager: Setup сам обнаруживает,
-    # какой процесс держит открытым mark.exe, закрывает именно его — и только
-    # ПОЭТОМУ потом знает, кого перезапустить после установки. Если мы сами
-    # выйдем раньше, чем Setup дойдёт до этого шага, Restart Manager просто не
-    # увидит наш процесс работающим и не запомнит его для перезапуска — apдейт
-    # пройдёт "в никуда", то есть ровно то, что вы наблюдали.
-    #
-    # Поэтому просто остаёмся висеть и ждём, пока инсталлятор нас не прибьёт
-    # сам (CTRL_CLOSE_EVENT от Restart Manager). Таймаут — на случай, если
-    # что-то пошло не так и закрытия не произошло (например, несовпадение
-    # CloseApplicationsFilter в .iss), чтобы не зависнуть навсегда.
-    timeout_seconds = 60
-    waited = 0
-    while waited < timeout_seconds:
-        time.sleep(1)
-        waited += 1
- 
-    print(f"{Fore.RED}Installer did not close this process within {timeout_seconds}s — "
-          f"something may be wrong with CloseApplications in the .iss script. "
-          f"Please close and restart the app manually.{Style.RESET_ALL}")
-    console_start()
+    # Restart Manager (CloseApplications/RestartApplications в Inno Setup) не
+    # умеет вежливо попросить закрыться голое консольное приложение без окна —
+    # ему физически некуда слать WM_QUERYENDSESSION, поэтому он просто ждёт
+    # свой внутренний таймаут (~30 сек) и откатывает всю установку. Поэтому
+    # закрываемся сами, сразу же — .iss-скрипт компенсирует небольшой
+    # Sleep(1500) в InitializeSetup перед тем, как Setup начнёт что-либо
+    # проверять/копировать, и сам запускает mark.exe в конце через [Run],
+    # так что RestartApplications ему для этого не нужен.
+    sys.exit(0)
 
 # функция для запуска консоли и обработки команд
 def console_start(args=None):
@@ -1169,7 +1125,6 @@ def start():
 
 # главная точка входа в программу
 if __name__ == "__main__":
-    install_console_ctrl_handler()
     if getattr(sys, "frozen", False):
         # чистим хвост от предыдущего update() — старый процесс уже закрылся,
         # так что файл теперь можно удалить
