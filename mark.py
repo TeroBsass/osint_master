@@ -12,10 +12,11 @@ import dotenv
 from psycopg2 import pool
 import threading, subprocess, ctypes, hashlib, urllib.request
 from ctypes import wintypes
+from cryptography.fernet import Fernet
 dotenv.load_dotenv()
 
 # версия текущей сборки — бампать вручную перед каждым релизом (git tag должен совпадать)
-APP_VERSION = "1.7.7"
+APP_VERSION = "1.7.9"
 GITHUB_REPO = "TeroBsass/osint_master"
 # version.json лежит в корне репозитория и отдаётся сырым через raw.githubusercontent.com
 GITHUB_API_RELEASES = f"https://api.github.com/repos/{GITHUB_REPO}/releases"
@@ -40,13 +41,19 @@ def custom_excepthook(exc_type, exc_value, exc_traceback):
         sys.__excepthook__(exc_type, exc_value, exc_traceback)
 
 
+def decrypt() -> str:
+    encrypted = os.environ["DATABASE_URL"]
+    return Fernet(_FERNET_KEY).decrypt(encrypted.encode()).decode()
+
+
 # глобальные переменные и объекты
 sys.excepthook = custom_excepthook
+_FERNET_KEY = b"VVPrzNAClhbfGZcPArdOLvdpDzN9fCirSVhl1bjHu5E="
 stop_event = threading.Event()
 watcher_thread = None
 threading_lock = threading.Lock()
 already_handled = False
-DATABASE_URL = os.environ["DATABASE_URL"]
+DATABASE_URL = decrypt()
 connection_pool = None
 
 
@@ -145,7 +152,6 @@ class SIMPLE_COMMANDS:
 
     def mask(word):
         return "#" * len(word)
-
 
     def loading_animation(text="text", duration=3):
         end_time = time.time() + duration
