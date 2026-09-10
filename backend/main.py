@@ -83,7 +83,22 @@ class ChatRequest(BaseModel):
     text: str
 
 
+class LoginRequest(BaseModel):
+    name: str
+    password: str
+    hwid: str
+
+
 # ------------------------------------------------------------- внутреннее --
+
+def _verify_password(stored: str, provided: str) -> bool:
+    try:
+        return bcrypt.checkpw(provided.encode(), stored.encode())
+    except ValueError:
+        # legacy-строка: пароль ещё лежит как есть, не в виде bcrypt-хеша
+        # (аккаунты, созданные до перехода на API)
+        return stored == provided
+
 
 def _authenticate(conn, hwid: str, device_token: str) -> dict:
     with conn.cursor() as cur:
@@ -180,6 +195,55 @@ def claim(req: ClaimRequest):
         release_connection(conn, broken=broken)
 
 
+@app.post("/auth/login")
+def login(req: LoginRequest):
+    """Восстановление доступа по имени+паролю — на случай, если локальный
+    device_token потерян (переустановка Windows, очистка LocalAppData,
+    и т.п.), но hwid на этой машине тот же самый, что был при регистрации.
+    Выдаёт новый device_token взамен старого (старый перестаёт работать)."""
+    conn = db_connect()
+    broken = False
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SET statement_timeout = 5000")
+            cur.execute("SELECT hwid, password FROM users WHERE name=%s", (req.name,))
+            row = cur.fetchone()
+
+            if row is None:
+                raise HTTPException(status_code=404, detail="User not found.")
+
+            stored_hwid, stored_password = row
+
+            if not _verify_password(stored_password, req.password):
+                raise HTTPException(status_code=401, detail="Wrong password.")
+
+            if stored_hwid != req.hwid:
+                # смена устройства — сознательно не делаем это автоматическим,
+                # это уже вопрос политики (один пароль не должен переносить
+                # лицензию на любое железо без ручной проверки)
+                raise HTTPException(
+                    status_code=403,
+                    detail="This account is bound to a different device. Contact support to transfer it.",
+                )
+
+            device_token = secrets.token_urlsafe(32)
+            new_password_value = (
+                stored_password if stored_password.startswith("$2")
+                else bcrypt.hashpw(req.password.encode(), bcrypt.gensalt()).decode()
+            )
+            cur.execute(
+                "UPDATE users SET device_token_hash=%s, password=%s WHERE hwid=%s",
+                (hash_token(device_token), new_password_value, req.hwid),
+            )
+        conn.commit()
+        return {"device_token": device_token}
+    except (psycopg2.OperationalError, psycopg2.InterfaceError):
+        broken = True
+        raise db_unavailable()
+    finally:
+        release_connection(conn, broken=broken)
+
+
 @app.post("/auth/resume")
 def resume(req: ResumeRequest):
     conn = db_connect()
@@ -224,3 +288,29 @@ def chat_send(req: ChatRequest):
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
+@app.post("/post/data")
+def post_data(req: ChatRequest):
+    conn = db_connect()
+    broken = False
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SET statement_timeout = 5000")
+            ch = req.ch
+            if ch != "d_level_decr":
+                prompt = "UPDATE users SET" + ch + "=%s WHERE hwid=%s"
+                cur.execute(prompt, (req.val, req.hwid))
+            elif ch == "d_level_decr":
+                cur.execute("""
+                                UPDATE users
+                                SET d_level = GREATEST(d_level - 1, 0)
+                            """)
+        conn.commit()
+        return {"status": "post"}
+    except (psycopg2.OperationalError, psycopg2.InterfaceError):
+        broken = True
+        raise db_unavailable()
+    finally:
+        release_connection(conn, broken=broken)
+
+

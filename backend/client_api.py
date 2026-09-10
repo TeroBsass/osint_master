@@ -43,11 +43,11 @@ def _save_token(token: str):
         f.write(token)
 
 
-def _post(path: str, payload: dict, timeout: int = 8):
+def _post(path: str, payload: dict, timeout: int = 40):
     try:
         resp = requests.post(f"{API_BASE_URL}{path}", json=payload, timeout=timeout)
-    except requests.RequestException:
-        print(f"{Fore.RED}Try use VPN or another network connection. Server is not responding.{Style.RESET_ALL}")
+    except requests.RequestException as e:
+        print(f"{Fore.RED}Try use VPN or another network connection. Server is not responding.{e}{Style.RESET_ALL}")
         return None
     return resp
 
@@ -56,9 +56,9 @@ def start(hwid: str, console_start):
     """Аналог прежней DB-версии start(): регистрация нового пользователя,
     либо "переезд" уже существующего на device_token, либо обычное
     возобновление сессии — в зависимости от того, что вернул сервер."""
-
+ 
     token = _load_token()
-
+ 
     if token:
         resp = _post("/auth/resume", {"hwid": hwid, "device_token": token})
         if resp is None:
@@ -76,49 +76,63 @@ def start(hwid: str, console_start):
         else:
             print(f"{Fore.RED}Server error: {resp.status_code} {resp.text}{Style.RESET_ALL}")
             return False
-
+ 
     # локального токена нет — либо это старый (до-API) аккаунт на этой
     # машине, либо совсем новая машина
     resp = _post("/auth/claim", {"hwid": hwid})
     if resp is None:
         return False
-
+ 
     if resp.status_code == 200:
         _save_token(resp.json()["device_token"])
         console_start()
         return True
-
+ 
     if resp.status_code == 404:
         # действительно новая машина — обычная регистрация
         name = input("Enter your name: ")
         pw = getpass.getpass("Enter your password: ")
-
+ 
         resp = _post("/auth/register", {"name": name, "password": pw, "hwid": hwid})
         if resp is None:
             return False
-
+ 
         if resp.status_code == 200:
             _save_token(resp.json()["device_token"])
             console_start()
             return True
-
+ 
         print(f"{Fore.RED}{resp.json().get('detail', resp.text)}{Style.RESET_ALL}")
         return False
-
+ 
     # 409 — уже был заклеймлен ранее, а локальный файл с токеном потерян
-    # (переустановка ОС и т.п.). Восстановление в этом MVP не реализовано —
-    # достаточно частый кейс, чтобы обсудить отдельно, если понадобится.
-    print(f"{Fore.RED}This device was already claimed but the local token is missing. "
-          f"Contact support to reset it.{Style.RESET_ALL}")
+    # (переустановка ОС, очистка LocalAppData и т.п.). Восстанавливаемся
+    # через логин по имени+паролю — сервер выдаст новый device_token взамен
+    # старого, при условии что hwid этой машины тот же, что был при регистрации.
+    print(f"{Fore.YELLOW}This device was registered before but the local session was lost. "
+          f"Log in to recover access.{Style.RESET_ALL}")
+    name = input("Enter your name: ")
+    pw = getpass.getpass("Enter your password: ")
+ 
+    resp = _post("/auth/login", {"name": name, "password": pw, "hwid": hwid})
+    if resp is None:
+        return False
+ 
+    if resp.status_code == 200:
+        _save_token(resp.json()["device_token"])
+        console_start()
+        return True
+ 
+    print(f"{Fore.RED}{resp.json().get('detail', resp.text)}{Style.RESET_ALL}")
     return False
 
 
-def send_message(hwid: str, to_name: str, text: str = None):
+def send_message(hwid: str, to_name: str = None, text: str = None):
     token = _load_token()
     if not token:
         print(f"{Fore.RED}Not logged in.{Style.RESET_ALL}")
         return
-
+    to_name = input("Enter receiver name: ") if not to_name else to_name
     text = input(f"you>>{to_name}>> ") if not text else text
 
     resp = _post("/chat/send", {"hwid": hwid, "device_token": token, "to_name": to_name, "text": text})
@@ -131,3 +145,55 @@ def send_message(hwid: str, to_name: str, text: str = None):
         print(f"{Fore.RED}User not found.{Style.RESET_ALL}")
     else:
         print(f"{Fore.RED}Error occurred: {resp.json().get('detail', resp.text)}{Style.RESET_ALL}")
+
+def get_status(hwid: str):
+    """Чистое чтение своих данных из БД (restart/shutdown/message/d_level/
+    tries_th) — без каких-либо изменений на сервере. Можно звать не только
+    при старте (это делает start()), но и периодически во время работы,
+    чтобы подхватывать restart/shutdown, выставленные уже после запуска.
+ 
+    Возвращает dict с полями, либо None при сетевой ошибке/невалидном токене
+    (в последнем случае локальный токен уже стёрт — start() при следующем
+    запуске переоформит его через /auth/claim или /auth/register)."""
+ 
+    token = _load_token()
+    if not token:
+        return None
+ 
+    resp = _post("/auth/resume", {"hwid": hwid, "device_token": token})
+    if resp is None:
+        return None
+ 
+    if resp.status_code == 200:
+        return resp.json()
+ 
+    if resp.status_code == 401:
+        # токен отозван/невалиден — не оставляем протухший локальный файл
+        try:
+            os.remove(_TOKEN_PATH)
+        except OSError:
+            pass
+ 
+    return None
+
+def update_data(hwid: str, ch="", val=0):
+    token = _load_token()
+    if not token:
+        return None
+    
+    resp = _post("/post/data", {"hwid": hwid, "ch": ch, "val": val})
+    if resp is None:
+            return None
+     
+    if resp.status_code == 200:
+        return resp.json()
+     
+    if resp.status_code == 401:
+        # токен отозван/невалиден — не оставляем протухший локальный файл
+        try:
+            os.remove(_TOKEN_PATH)
+        except OSError:
+            pass
+     
+    return None
+    

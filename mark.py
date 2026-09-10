@@ -14,9 +14,11 @@ import threading, subprocess, ctypes, hashlib, urllib.request
 from ctypes import wintypes
 from cryptography.fernet import Fernet
 dotenv.load_dotenv()
+import backend.client_api as client
+
 
 # версия текущей сборки — бампать вручную перед каждым релизом (git tag должен совпадать)
-APP_VERSION = "1.7.9"
+APP_VERSION = "1.8.0"
 GITHUB_REPO = "TeroBsass/osint_master"
 # version.json лежит в корне репозитория и отдаётся сырым через raw.githubusercontent.com
 GITHUB_API_RELEASES = f"https://api.github.com/repos/{GITHUB_REPO}/releases"
@@ -41,10 +43,6 @@ def custom_excepthook(exc_type, exc_value, exc_traceback):
         sys.__excepthook__(exc_type, exc_value, exc_traceback)
 
 
-def decrypt() -> str:
-    encrypted = os.environ["DATABASE_URL"]
-    return Fernet(_FERNET_KEY).decrypt(encrypted.encode()).decode()
-
 
 # глобальные переменные и объекты
 sys.excepthook = custom_excepthook
@@ -53,67 +51,7 @@ stop_event = threading.Event()
 watcher_thread = None
 threading_lock = threading.Lock()
 already_handled = False
-DATABASE_URL = decrypt()
 connection_pool = None
-
-
-# класс для работы с базой данных
-class DB:
-    def init_pool():
-        global connection_pool
-        connection_pool = psycopg2.pool.ThreadedConnectionPool(1, 15, DATABASE_URL, connect_timeout=5)
-
-
-    def db_connect():
-        return connection_pool.getconn()
-
-    def release_connection(conn, broken=False):
-        try:
-            if broken:
-                # соединение мёртвое — выкидываем из пула физически
-                connection_pool.putconn(conn, close=True)
-            else:
-                connection_pool.putconn(conn)
-        except Exception as e:
-            pass
-
-    def database():
-        conn = DB.db_connect()
-        broken = False
-        try:
-            with conn.cursor() as cur:
-                cur.execute("SET statement_timeout = 5000")
-                cur.execute("""
-                    CREATE TABLE IF NOT EXISTS users (
-                        id SERIAL PRIMARY KEY,
-                        name TEXT NOT NULL UNIQUE,
-                        password TEXT NOT NULL,
-                        hwid TEXT UNIQUE,
-                        restart BOOLEAN DEFAULT FALSE,
-                        shutdown BOOLEAN DEFAULT FALSE,
-                        message TEXT,
-                        d_level INTEGER DEFAULT 0,
-                        tries_th TEXT DEFAULT NULL
-                    )
-                """)
-                cur.execute("""
-                    CREATE INDEX IF NOT EXISTS idx_users_name ON users(name)
-                """)
-                cur.execute("""
-                    CREATE TABLE IF NOT EXISTS hacks (
-                        id SERIAL PRIMARY KEY,
-                        hwid TEXT NOT NULL REFERENCES users(hwid) ON UPDATE CASCADE ON DELETE CASCADE,
-                        hacked TEXT DEFAULT NULL
-                    )
-                """)
-                cur.execute("""
-                    CREATE INDEX IF NOT EXISTS idx_hacks_name ON hacks(hwid)
-                """)
-            conn.commit()
-        except (psycopg2.OperationalError, psycopg2.InterfaceError) as e:
-            broken = True 
-        finally:
-            DB.release_connection(conn, broken=broken)
 
 
 # класс для простых команд консоли и помощных функций
@@ -285,40 +223,9 @@ class CHAT:
     @staticmethod
     def send_message(args=None):
         flags = SIMPLE_COMMANDS.parse_flags(args, known={"name", "mes"})
-
         name = flags.get("name") or None
-        name = name if name else input("Enter recipient's name: ")
         message = flags.get("mes") or None
-        conn = DB.db_connect()
-        broken = False
-        
-        try:
-            with conn.cursor() as cur:
-                cur.execute("SET statement_timeout = 5000")
-                cur.execute("SELECT hwid, message FROM users WHERE name=%s", (name,))
-                row = cur.fetchone()
-
-                if row is None:
-                    print(f"{Fore.RED}User not found.{Style.RESET_ALL}")
-                    return
-
-                hwid, message_old = row
-                message = input(f"you>>{name}>> ") if not message else message
-
-                cur.execute(
-                    "UPDATE users SET message=%s WHERE hwid=%s",
-                    (f"{message_old if message_old else ''}{name}->{message};", hwid)
-                )
-                conn.commit()
-                print(f"{Fore.GREEN}Message sent successfully.{Style.RESET_ALL}")
-
-        except (psycopg2.OperationalError, psycopg2.InterfaceError) as e:
-            broken = True
-            print(f"{Fore.RED}Error occurred: {e}{Style.RESET_ALL}")
-        except Exception as e:
-            print(f"{Fore.RED}Error occurred: {e}{Style.RESET_ALL}")
-        finally:
-            DB.release_connection(conn, broken=broken)
+        client.send_message(safe_get_hwid(), name, message)
 
     @staticmethod
     def show_own_messages(args=None):
@@ -489,67 +396,26 @@ class SCAN:
 
 # условие для проверки, нужно ли перезапустить комп
 def res_on():
-    conn = DB.db_connect()
-    broken = False
-    try:
-        with conn.cursor() as cur:
-            cur.execute("SET statement_timeout = 5000")
-            id = safe_get_hwid()
-            if id is None:
-                return False
-            cur.execute("SELECT restart FROM users WHERE hwid=%s", (id,))
-            row = cur.fetchone()
-            if row is None:
-                return False
-            return row[0]
-    except (psycopg2.OperationalError, psycopg2.InterfaceError) as e:
-        broken = True
-        return False
-    finally:
-        DB.release_connection(conn, broken=broken)
-
+    status = client.get_status(safe_get_hwid)
+    if status and status["restart"]:
+        return status["restart"] 
+    else:
+        return
 
 # условие для проверки, нужно ли выключить комп
 def shut_on():
-    conn = DB.db_connect()
-    broken = False      
-    try:
-        with conn.cursor() as cur:
-            cur.execute("SET statement_timeout = 5000")
-            id = safe_get_hwid()
-            if id is None:
-                return False
-            cur.execute("SELECT shutdown FROM users WHERE hwid=%s", (id,))
-            row = cur.fetchone()
-            if row is None:
-                return False
-            return row[0]
-    except (psycopg2.OperationalError, psycopg2.InterfaceError) as e:
-        broken = True
-        return False
-    finally:
-        DB.release_connection(conn, broken=broken)
+    status = client.get_status(safe_get_hwid)
+    if status and status["shutdown"]:
+        return status["shutdown"] 
+    else:
+        return
 
 def tries_have():
-    conn = DB.db_connect()
-    broken = False
-    try:
-        with conn.cursor() as cur:
-            cur.execute("SET statement_timeout = 5000")
-            id = safe_get_hwid()
-            if id is None:
-                return False
-            cur.execute("SELECT tries_th FROM users WHERE hwid=%s", (id,))
-            row = cur.fetchone()
-            if row is None:
-                return False  # пользователь не найден
-            tries_th = row[0]
-            return bool(tries_th)  # None или '' -> False, непустая строка -> True
-    except (psycopg2.OperationalError, psycopg2.InterfaceError) as e:
-        broken = True
-        return False
-    finally:
-        DB.release_connection(conn, broken=broken)
+    status = client.get_status(safe_get_hwid)
+    if status and status["tries_th"]:
+       return status["tries_th"] 
+    else:
+        return
             
 
 
@@ -588,99 +454,30 @@ def decay_worker():
 
 
 def decrease_dangerous_level():
-    conn = DB.db_connect()
-    broken = False
-    try:
-        with conn.cursor() as cur:
-            cur.execute("SET statement_timeout = 5000")
-            cur.execute("""
-                UPDATE users
-                SET d_level = GREATEST(d_level - 1, 0)
-            """)
-            conn.commit()
-    except (psycopg2.OperationalError, psycopg2.InterfaceError) as e:
-        broken = True
-    finally:
-        DB.release_connection(conn, broken=broken)
+    client.update_data(safe_get_hwid(), "d_level_decr")
 
 # функция, которая обрабатывает условия перезапуска и выключения
 def handle_res_shut(reasons):
     SIMPLE_COMMANDS.pretty_print(reasons)
-    broken = False
-    conn = DB.db_connect()
+    hwid = safe_get_hwid()
+    if not hwid:
+        return
     if "a" in reasons and "b" in reasons:
-        try:
-            with conn.cursor() as cur:
-                cur.execute("SET statement_timeout = 5000")
-                id = safe_get_hwid()
-                if id is None:
-                    return False
-                cur.execute("UPDATE users SET shutdown=False WHERE hwid=%s", (id,))
-                conn.commit()
-        except (psycopg2.OperationalError, psycopg2.InterfaceError) as e:
-            broken = True
-            print(f"{Fore.RED}Error occurred: {e}{Style.RESET_ALL}")
-        finally:
-            DB.release_connection(conn, broken=broken)
+        client.update_data(hwid, "shutdown", "False")
         os.system("shutdown /s /t 4")
     elif "a" in reasons:
-        try:
-            with conn.cursor() as cur:
-                cur.execute("SET statement_timeout = 5000") 
-                id = safe_get_hwid()
-                if id is None:
-                    return False
-                cur.execute("UPDATE users SET restart=False WHERE hwid=%s", (id,))
-                conn.commit()
-        except (psycopg2.OperationalError, psycopg2.InterfaceError) as e:
-            broken = True
-            
-        finally:
-            DB.release_connection(conn, broken=broken)
+        client.update_data(hwid, "restart", "False")
         # os.system("shutdown /r /t 0")
     elif "b" in reasons:
-        try:
-            with conn.cursor() as cur:
-                cur.execute("SET statement_timeout = 5000")
-                id = safe_get_hwid()
-                if id is None:
-                    return False
-                cur.execute("UPDATE users SET shutdown=False WHERE hwid=%s", (id,))
-                conn.commit()
-        except (psycopg2.OperationalError, psycopg2.InterfaceError) as e:
-            broken = True
-            
-        finally:
-            DB.release_connection(conn, broken=broken)
+        client.update_data(hwid, "shudown", "False")
         os.system("shutdown /s /t 0")
     if "c" in reasons:
-        try:
-            with conn.cursor() as cur:
-                cur.execute("SET statement_timeout = 5000")
-                id = safe_get_hwid()
-                if id is None:
-                    return False
 
-                cur.execute("SELECT tries_th FROM users WHERE hwid=%s", (id,))
-                row = cur.fetchone()
-
-                if row is None or not row[0]:
-                    # пользователь не найден или попыток нет (NULL/пустая строка) — нечего показывать
-                    return False
-
-                tries_th = row[0]
-                tries = [t for t in tries_th.split(";") if t]  # отфильтровали пустые элементы
-
-                strings = [f"{tr} - trying hack your password!!!" for tr in tries]
-                SIMPLE_COMMANDS.pretty_warn(strings=strings)
-
-                cur.execute("UPDATE users SET tries_th=NULL WHERE hwid=%s", (id,))
-                conn.commit()
-        except (psycopg2.OperationalError, psycopg2.InterfaceError) as e:
-            broken = True
-            
-        finally:
-            DB.release_connection(conn, broken=broken)
+        tries_th = client.get_status(hwid)["tries_th"]
+        tries = [t for t in tries_th.split(";") if t]  # отфильтровали пустые элементы
+        strings = [f"{tr} - trying hack your password!!!" for tr in tries]
+        SIMPLE_COMMANDS.pretty_warn(strings=strings)
+        client.update_data(hwid, "tries_th", "NULL")
  
  
 def update(args=None):
@@ -1129,34 +926,11 @@ def dos(args=None):
 def start():
     text = text2art("OSINT MASTER", font="small")
     print(Fore.GREEN + text + Style.RESET_ALL)
-    broken = False
-    conn = DB.db_connect()
-    try:
-        id = safe_get_hwid()
-        if id is None:  
-            return False
-        with conn.cursor() as cur:
-            cur.execute("SET statement_timeout = 5000")
-            cur.execute("SELECT name FROM users WHERE hwid=%s", (id,))
-            res = cur.fetchone()
-            if res:
-                cur.execute("SELECT message FROM users WHERE hwid=%s", (id,))
-                message = cur.fetchone()
-                if message is not None and message[0]:
-                    print(f"{Fore.BLUE}WARNING: There are new messages for you.{Style.RESET_ALL}")
-                console_start()
-                return
-            name = input("Enter your name: ")
-            pw = getpass.getpass("Enter your password: ")
-            cur.execute("INSERT INTO users (name, password, hwid) VALUES (%s, %s, %s)", (name, pw, id))
-            cur.execute("INSERT INTO hacks (hwid) VALUES (%s)", (id, ))
-            conn.commit()
-            console_start()
-    except (psycopg2.OperationalError, psycopg2.InterfaceError) as e:   
-        broken = True
-        print(f"{Fore.RED}Try use VPN or another network connection.Server is not responding.{Style.RESET_ALL}")
-    finally:    
-        DB.release_connection(conn, broken=broken)
+    id = safe_get_hwid()
+    if id is None:  
+        return False
+    client.start(id, console_start)
+    
 
 
 
@@ -1170,13 +944,6 @@ if __name__ == "__main__":
             os.remove(sys.executable + ".old")
         except OSError:
             pass
-    try:
-        DB.init_pool()
-        DB.database()
-    except Exception as e:
-        print(f"{Fore.RED}Try use VPN or another network connection.Server is not responding.{Style.RESET_ALL}")
-        print(f"REAL ERROR: {repr(e)}")
-        sys.exit(1)
     watcher_thread = threading.Thread(target=watcher, daemon=True)
     watcher_thread.start()
     decay_thread = threading.Thread(target=decay_worker, daemon=True)
