@@ -196,4 +196,24 @@ def update_data(hwid: str, ch="", val=0):
             pass
      
     return None
+
+def read_messages(hwid: str):
+    """Забирает и одновременно очищает накопленные сообщения на сервере.
+    Возвращает сырую строку вида 'sender->text;sender2->text2;' (или None,
+    если сообщений нет / произошла ошибка) — разбор и вывод остаются в
+    mark.py, здесь только сетевой вызов."""
+    token = _load_token()
+    if not token:
+        print(f"{Fore.RED}Not logged in.{Style.RESET_ALL}")
+        return None
+ 
+    resp = _post("/chat/read", {"hwid": hwid, "device_token": token})
+    if resp is None:
+        return None
+ 
+    if resp.status_code == 200:
+        return resp.json().get("messages")
+ 
+    print(f"{Fore.RED}{resp.json().get('detail', resp.text)}{Style.RESET_ALL}")
+    return None
     

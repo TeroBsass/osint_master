@@ -88,6 +88,10 @@ class LoginRequest(BaseModel):
     password: str
     hwid: str
 
+class ReadMessagesRequest(BaseModel):
+    hwid: str
+    device_token: str
+
 
 # ------------------------------------------------------------- внутреннее --
 
@@ -307,6 +311,32 @@ def post_data(req: ChatRequest):
                             """)
         conn.commit()
         return {"status": "post"}
+    except (psycopg2.OperationalError, psycopg2.InterfaceError):
+        broken = True
+        raise db_unavailable()
+    finally:
+        release_connection(conn, broken=broken)
+
+@app.post("/chat/read")
+def chat_read(req: ReadMessagesRequest):
+    """Отдаёт сырую строку накопленных сообщений (формат "sender->text;...")
+    и одновременно чистит её в базе — ровно то, что раньше делал клиент
+    напрямую через SELECT + UPDATE message=NULL. Разбор по отправителям,
+    фильтр по имени и задержка между строками — на стороне клиента,
+    серверу об этом знать незачем."""
+    conn = db_connect()
+    broken = False
+    try:
+        me = _authenticate(conn, req.hwid, req.device_token)
+        messages = me["message"]
+ 
+        if messages:
+            with conn.cursor() as cur:
+                cur.execute("SET statement_timeout = 5000")
+                cur.execute("UPDATE users SET message=NULL WHERE hwid=%s", (req.hwid,))
+            conn.commit()
+ 
+        return {"messages": messages}
     except (psycopg2.OperationalError, psycopg2.InterfaceError):
         broken = True
         raise db_unavailable()

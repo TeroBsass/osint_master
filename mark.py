@@ -18,7 +18,7 @@ import backend.client_api as client
 
 
 # версия текущей сборки — бампать вручную перед каждым релизом (git tag должен совпадать)
-APP_VERSION = "1.8.0"
+APP_VERSION = "1.8.1"
 GITHUB_REPO = "TeroBsass/osint_master"
 # version.json лежит в корне репозитория и отдаётся сырым через raw.githubusercontent.com
 GITHUB_API_RELEASES = f"https://api.github.com/repos/{GITHUB_REPO}/releases"
@@ -231,7 +231,6 @@ class CHAT:
     def show_own_messages(args=None):
         flags = SIMPLE_COMMANDS.parse_flags(args, known={"waiter", "by_name"})
 
-        # --waiter=N — задержка между сообщениями (число 0-5, по умолчанию 1)
         waiter_raw = flags.get("waiter")
         if "waiter" in flags:
             try:
@@ -245,57 +244,32 @@ class CHAT:
             amount = 0
             use_delay = False
 
-        # --by_name=имя — фильтр по отправителю
         name = flags.get("by_name") or None
 
-        conn = DB.db_connect()
-        broken = False
-        try:
-            with conn.cursor() as cur:
-                cur.execute("SET statement_timeout = 5000")
-                id = safe_get_hwid()
-                if id is None:
-                    return False
+        hwid = safe_get_hwid()
+        if hwid is None:
+            return False
 
-                if name:
-                    cur.execute("SELECT hwid FROM users WHERE name=%s", (name,))
-                    h = cur.fetchone()
-                    if not h:
-                        print("User is not found!!!")
-                        return
+        raw = client.read_messages(hwid)
 
-                cur.execute("SELECT message FROM users WHERE hwid=%s", (id,))
-                row = cur.fetchone()
-
-                if row and row[0]:
-                    print(f"{Fore.GREEN}Your messages:{Style.RESET_ALL}")
-                    for i in row[0].split(';'):
-                        i = i.strip()
-                        if not i:
-                            continue
-                        parts = i.split('->', 1)
-                        if len(parts) != 2:
-                            continue
-                        sender, text = parts
-                        if name and sender != name:
-                            continue
-                        print(f"{Fore.BLUE}{sender}{Style.RESET_ALL}>>{text}")
-                        if use_delay:
-                            time.sleep(amount)
-
-                    print(f"{Fore.YELLOW}All messages displayed and read.{Style.RESET_ALL}")
-                    cur.execute("UPDATE users SET message=NULL WHERE hwid=%s", (id,))
-                    conn.commit()
-                else:
-                    print(f"{Fore.YELLOW}No messages found for your account.{Style.RESET_ALL}")
-
-        except (psycopg2.OperationalError, psycopg2.InterfaceError) as e:
-            broken = True
-            print(f"{Fore.RED}Error occurred: {e}{Style.RESET_ALL}")
-        except Exception as e:
-            print(f"{Fore.RED}Error occurred: {e}{Style.RESET_ALL}")
-        finally:
-            DB.release_connection(conn, broken=broken)
+        if raw:
+            print(f"{Fore.GREEN}Your messages:{Style.RESET_ALL}")
+            for i in raw.split(';'):
+                i = i.strip()
+                if not i:
+                    continue
+                parts = i.split('->', 1)
+                if len(parts) != 2:
+                    continue
+                sender, text = parts
+                if name and sender != name:
+                    continue
+                print(f"{Fore.BLUE}{sender}{Style.RESET_ALL}>>{text}")
+                if use_delay:
+                    time.sleep(amount)
+            print(f"{Fore.YELLOW}All messages displayed and read.{Style.RESET_ALL}")
+        else:
+            print(f"{Fore.YELLOW}No messages found for your account.{Style.RESET_ALL}")
 
 # класс для работы с DOS функциями
 class DOS:
@@ -396,7 +370,7 @@ class SCAN:
 
 # условие для проверки, нужно ли перезапустить комп
 def res_on():
-    status = client.get_status(safe_get_hwid)
+    status = client.get_status(safe_get_hwid())
     if status and status["restart"]:
         return status["restart"] 
     else:
@@ -404,14 +378,14 @@ def res_on():
 
 # условие для проверки, нужно ли выключить комп
 def shut_on():
-    status = client.get_status(safe_get_hwid)
+    status = client.get_status(safe_get_hwid())
     if status and status["shutdown"]:
         return status["shutdown"] 
     else:
         return
 
 def tries_have():
-    status = client.get_status(safe_get_hwid)
+    status = client.get_status(safe_get_hwid())
     if status and status["tries_th"]:
        return status["tries_th"] 
     else:
