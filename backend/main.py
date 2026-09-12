@@ -22,6 +22,7 @@ API по HTTPS. Идентификация клиента — не голый HW
 
 import os
 import hashlib
+import random
 import secrets
 
 import bcrypt
@@ -82,17 +83,39 @@ class ChatRequest(BaseModel):
     to_name: str
     text: str
 
+class UpdateDataRequest(BaseModel):
+    hwid: str
+    ch: str
+    val: str | None = None
+
 
 class LoginRequest(BaseModel):
     name: str
     password: str
     hwid: str
 
+class ImportRequest(BaseModel):
+    hwid: str
+    data: dict
+
 class ReadMessagesRequest(BaseModel):
     hwid: str
     device_token: str
 
+class DBUserData(BaseModel):
+    hwid: str
+    name: str
 
+class OsintData(BaseModel):
+    hwid: str
+    device_token: str
+    name: str
+    count: int
+
+class GHWIDRequest(BaseModel):
+    hwid: str
+    name: str
+    password: str
 # ------------------------------------------------------------- внутреннее --
 
 def _verify_password(stored: str, provided: str) -> bool:
@@ -166,6 +189,79 @@ def register(req: RegisterRequest):
     finally:
         release_connection(conn, broken=broken)
 
+@app.post("/db/all")
+def scan_all():
+    conn = db_connect()
+    broken = False
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SET statement_timeout = 5000")
+            cur.execute("SELECT * FROM users")
+            res = cur.fetchall()
+            if res:
+                return res
+            else:
+                return None
+    except (psycopg2.OperationalError, psycopg2.InterfaceError):
+        broken = True
+        raise db_unavailable()
+    finally:
+        release_connection(conn, broken=broken)
+
+@app.post("/user/osint")
+def osint_by_user(req: OsintData):
+    conn = db_connect()
+    broken = False
+    try:
+        me = _authenticate(conn, req.hwid, req.device_token)
+        my_n = me["name"]
+
+        count = max(0, min(req.count, 5))
+
+        with conn.cursor() as cur:
+            cur.execute("SET statement_timeout = 5000")
+
+            cur.execute("SELECT password, d_level, tries_th FROM users WHERE name=%s", (req.name,))
+            row_2 = cur.fetchone()
+            if row_2 is None:
+                raise HTTPException(status_code=404, detail="User not found.")
+            p, d_level, tries_th = row_2
+
+            cur.execute(
+                "UPDATE users SET d_level = LEAST(d_level + %s, %s) WHERE name=%s",
+                (count, 5, my_n),
+            )
+
+            prefix = tries_th if tries_th else ''
+            new_tries_th = f"{prefix}{my_n};"
+            cur.execute("UPDATE users SET tries_th=%s WHERE name=%s", (new_tries_th, req.name))
+
+        conn.commit()
+
+        hidden_pass = hide_pass(p, d_level + count)
+        return {"count": count, "hidden_password": hidden_pass, "d_level": d_level}
+    except (psycopg2.OperationalError, psycopg2.InterfaceError):
+        broken = True
+        raise db_unavailable()
+    finally:
+        release_connection(conn, broken=broken)
+
+
+def hide_pass(password, d_level, max_level=5):
+    length = len(password)
+
+    # нормализуем level в диапазон 0.0 - 1.0
+    d_level = max(0, min(d_level, max_level))
+    level_ratio = d_level / max_level if max_level != 0 else 0.0
+
+    reveal_count = round(length * level_ratio)
+    reveal_indices = set(random.sample(range(length), reveal_count)) if reveal_count > 0 else set()
+
+    masked = "".join(
+        char if i in reveal_indices else "#"
+        for i, char in enumerate(password)
+    )
+    return masked
 
 @app.post("/auth/claim")
 def claim(req: ClaimRequest):
@@ -261,6 +357,29 @@ def resume(req: ResumeRequest):
         release_connection(conn, broken=broken)
 
 
+@app.post("/db/user")
+def scan_db(req: DBUserData):
+    conn = db_connect()
+    broken = False
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SET statement_timeout = 5000")
+            cur.execute("SELECT hacked FROM hacks WHERE hwid=%s", (req.hwid, ))
+            hacked = cur.fetchone()
+            form_hacked = hacked[0].split(";") if hacked and hacked[0] else []
+            dict_data = dict(entry.split("->", 1) for entry in form_hacked if entry)
+            cur.execute("SELECT * FROM users WHERE name=%s", (req.name,))
+            res = cur.fetchone()
+            return res, dict_data
+
+    except (psycopg2.OperationalError, psycopg2.InterfaceError):    
+        broken = True
+        raise db_unavailable()
+    finally:
+        release_connection(conn, broken=broken)
+    
+
+
 @app.post("/chat/send")
 def chat_send(req: ChatRequest):
     conn = db_connect()
@@ -294,7 +413,7 @@ def health():
     return {"status": "ok"}
 
 @app.post("/post/data")
-def post_data(req: ChatRequest):
+def post_data(req: UpdateDataRequest):
     conn = db_connect()
     broken = False
     try:
@@ -302,7 +421,7 @@ def post_data(req: ChatRequest):
             cur.execute("SET statement_timeout = 5000")
             ch = req.ch
             if ch != "d_level_decr":
-                prompt = "UPDATE users SET" + ch + "=%s WHERE hwid=%s"
+                prompt = "UPDATE users SET " + ch + "=%s WHERE hwid=%s"
                 cur.execute(prompt, (req.val, req.hwid))
             elif ch == "d_level_decr":
                 cur.execute("""
@@ -316,6 +435,114 @@ def post_data(req: ChatRequest):
         raise db_unavailable()
     finally:
         release_connection(conn, broken=broken)
+
+@app.post("/user/export")
+def exporting(req: ClaimRequest):
+    conn = db_connect()
+    broken = False
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SET statement_timeout = 5000")
+            cur.execute("SELECT hacked FROM hacks WHERE hwid=%s", (req.hwid,))
+            data = cur.fetchone()
+            formatted_data = data[0].split(";") if data and data[0] else []
+            dict_data = dict(entry.split("->", 1) for entry in formatted_data if entry)
+            return dict_data
+    except (psycopg2.OperationalError, psycopg2.InterfaceError):
+        broken = True
+        raise db_unavailable()
+    finally:
+        release_connection(conn, broken=broken)
+
+
+@app.post("/user/import")
+def importing(req: ImportRequest):
+    conn = db_connect()
+    broken = False
+    string = ""
+    data = req.data
+    try:
+        with conn.cursor() as cur:   
+            cur.execute("SET statement_timeout = 5000")         
+            cur.execute("SELECT hacked FROM hacks WHERE hwid=%s", (req.hwid, ))
+            hacked = cur.fetchone()
+            formatted_hacked = hacked[0].split(";") if hacked and hacked[0] else []
+            dict_data = dict(entry.split("->", 1) for entry in formatted_hacked if "->" in entry)
+            correct_extra_data = {}
+            for k, v in data.items():
+                if k in dict_data:
+                    continue
+                cur.execute("SELECT name FROM users")
+                names = cur.fetchall()
+                if k not in [n[0] for n in names]:
+                    continue
+                cur.execute("SELECT password FROM users WHERE name=%s", (k, ))
+                p = cur.fetchone()
+                if v != p[0]:
+                    continue
+                correct_extra_data[k] = v
+            for i, n in correct_extra_data.items():
+                string += f"{i}->{n};"
+            cur.execute("UPDATE hacks SET hacked=%s WHERE hwid=%s", (f"{hacked[0] or ''}{string}", req.hwid))
+            conn.commit()
+            return {"status": "ok"}
+    except (psycopg2.OperationalError, psycopg2.InterfaceError):
+        broken = True
+        raise db_unavailable()
+    finally:
+        release_connection(conn, broken=broken)
+
+@app.post("/user/hack")
+def get_hwid(req: GHWIDRequest):
+    conn = db_connect()
+    broken = False
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SET statement_timeout = 5000")
+            cur.execute("SELECT id FROM users WHERE name=%s", (req.name, ))
+            user_id = cur.fetchone()
+            if not user_id:
+                raise HTTPException(status_code=402, detail="User not found.")
+            cur.execute("SELECT hacked FROM hacks WHERE hwid=%s", (req.hwid, ))
+            old_h = cur.fetchone()
+            cur.execute("SELECT hwid FROM users WHERE name=%s AND password=%s", (req.name, req.password))
+            res = cur.fetchone()
+            formatted_hacked = old_h[0].split(";") if old_h and old_h[0] else []
+            dict_data = dict(entry.split("->", 1) for entry in formatted_hacked if "->" in entry)
+            if res:
+                if req.name not in dict_data:
+                    prefix = old_h[0] if old_h and old_h[0] else ""
+                    new_hacked = f"{prefix}{req.name}->{req.password};"
+                    cur.execute("UPDATE hacks SET hacked=%s WHERE hwid=%s", (new_hacked, req.hwid))
+                    conn.commit()
+                return res[0]
+            else:
+                raise HTTPException(status_code=401, detail="Wrong password.")
+    except (psycopg2.OperationalError, psycopg2.InterfaceError):
+        broken = True
+        raise db_unavailable()
+    finally:
+        release_connection(conn, broken=broken)
+
+
+@app.post("/user/dos")
+def dos(req: ClaimRequest):
+    conn = db_connect()
+    broken = False
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SET statement_timeout = 5000")
+            cur.execute("SELECT * FROM users WHERE hwid=%s", (req.hwid,))
+            res = cur.fetchone()
+            if not res:
+                raise HTTPException(status_code=402, detail="User not found.")
+            return {"status": "ok"}
+    except (psycopg2.OperationalError, psycopg2.InterfaceError):
+        broken = True
+        raise db_unavailable()
+    finally:
+        release_connection(conn, broken=broken)
+
 
 @app.post("/chat/read")
 def chat_read(req: ReadMessagesRequest):

@@ -14,11 +14,11 @@ import threading, subprocess, ctypes, hashlib, urllib.request
 from ctypes import wintypes
 from cryptography.fernet import Fernet
 dotenv.load_dotenv()
-import backend.client_api as client
+import client_api as client
 
 
 # версия текущей сборки — бампать вручную перед каждым релизом (git tag должен совпадать)
-APP_VERSION = "1.8.1"
+APP_VERSION = "1.8.2"
 GITHUB_REPO = "TeroBsass/osint_master"
 # version.json лежит в корне репозитория и отдаётся сырым через raw.githubusercontent.com
 GITHUB_API_RELEASES = f"https://api.github.com/repos/{GITHUB_REPO}/releases"
@@ -139,7 +139,7 @@ class SIMPLE_COMMANDS:
             print(f"{Fore.YELLOW}Your account has been marked for restart.{Style.RESET_ALL}")
         elif "b" in reasons:
             print(f"{Fore.RED}Your account has been marked for shutdown.{Style.RESET_ALL}")
-        sys.stdout.write(">>> ")
+        sys.stdout.write(">>>")
         sys.stdout.flush()  # возвращаемся в консоль после вывода сообщения
 
     def pretty_warn(strings):
@@ -147,7 +147,7 @@ class SIMPLE_COMMANDS:
         sys.stdout.flush()
         for string in strings:
             print(f"{Fore.RED}{string}{Style.RESET_ALL}")
-        sys.stdout.write(">>> ")
+        sys.stdout.write(">>>")
         sys.stdout.flush()  # возвращаемся в консоль после вывода сообщения
 
     def info(args=None):
@@ -164,7 +164,7 @@ class SIMPLE_COMMANDS:
             "scan": "Scan users and get more information.Use 'scan users* ' to scan all users and 'scan more* <name>* ' to get more information about a specific user.",
             "chat": "Send messages to other users and read your own messages.Use 'chat send* <name>* <message>* ' to send a message and 'chat my* ' to read your own messages.",
             "osint": "Tool to get password of user by name(but you open your own password, that makes it more easy to get your password to another user for the osint process).Use 'osint' to start the osint process.",
-            "dos": "Mark user for shutdown or restart by HWID.Use 'dos <hwid>* shutdown* ' to mark user for shutdown and 'dos <hwid>* restart* ' to mark user for restart.",
+            "dos": "Mark user for shutdown or restart by HWID.Use dos --hwid=<hwid> --act=<act>",
             "ghwid": "Get HWID of user by name and password.Use 'ghwid <name>* <password>*' to get HWID of user by name and password.",
         }
         if command_name in info_dict:
@@ -172,26 +172,6 @@ class SIMPLE_COMMANDS:
         else:
             print(f"{Fore.RED}Command not found.{Style.RESET_ALL}")
         console_start()
-
-    def hide_pass(password, d_level, max_level=5):
-        length = len(password)
-
-        # нормализуем level в диапазон 0.0 - 1.0
-        level_ratio = max(0, min(d_level, max_level)) / max_level if d_level != 0 else 0.1
-
-        # сколько символов показывать (минимум 0, максимум — вся длина)
-        reveal_count = round(length * level_ratio)
-
-        # индексы символов, которые останутся открытыми — выбираем случайно,
-        # чтобы не всегда открывались первые N символов подряд (так интереснее для игры)
-        reveal_indices = set(random.sample(range(length), reveal_count)) if reveal_count > 0 else set()
-
-        masked = "".join(
-            char if i in reveal_indices else "#"
-            for i, char in enumerate(password)
-        )
-        
-        return masked
 
     def parse_flags(args, known=None):
         """
@@ -274,34 +254,12 @@ class CHAT:
 # класс для работы с DOS функциями
 class DOS:
     def shutdown_user(hwid):
-        conn = DB.db_connect()
-        broken = False
-        try:
-            with conn.cursor() as cur:
-                cur.execute("SET statement_timeout = 5000")
-                cur.execute("UPDATE users SET shutdown=True WHERE hwid=%s", (hwid,))
-                conn.commit()
-        except (psycopg2.OperationalError, psycopg2.InterfaceError) as e:
-            broken = True
-            print(f"{Fore.RED}Error occurred: {e}{Style.RESET_ALL}")
-        finally:
-            DB.release_connection(conn, broken=broken)
+        client.update_data(safe_get_hwid(), "shutdown", "True")
         print(f"{Fore.GREEN}User with HWID {hwid} has been marked for shutdown.{Style.RESET_ALL}")
 
 
     def restart_user(hwid):
-        conn = DB.db_connect()
-        broken = False
-        try:
-            with conn.cursor() as cur:
-                cur.execute("SET statement_timeout = 5000")
-                cur.execute("UPDATE users SET restart=True WHERE hwid=%s", (hwid,))
-            conn.commit()
-        except (psycopg2.OperationalError, psycopg2.InterfaceError) as e:
-            broken = True
-            print(f"{Fore.RED}Error occurred: {e}{Style.RESET_ALL}")        
-        finally:
-            DB.release_connection(conn, broken=broken)
+        client.update_data(safe_get_hwid(), "restart", "True")
         print(f"{Fore.GREEN}User with HWID {hwid} has been marked for restart.{Style.RESET_ALL}")
 
 
@@ -309,63 +267,16 @@ class DOS:
 class SCAN:
     @staticmethod
     def scan_users():
-        conn = DB.db_connect()
-        broken = False
-        try:
-            with conn.cursor() as cur:
-                cur.execute("SET statement_timeout = 5000")
-                cur.execute("SELECT * FROM users")
-                res = cur.fetchall()
-                if res:
-                    text = f"{Fore.YELLOW}Scanning all users{Style.RESET_ALL}"
-                    SIMPLE_COMMANDS.loading_animation(text, 3)
-                    print(f"{Fore.GREEN}Scan results:{Style.RESET_ALL}")
-                    for user in res:
-                        print(f"ID: {user[0]}, Name: {user[1]}")
-                else:
-                    print(f"{Fore.RED}No users found in the database.{Style.RESET_ALL}")
-        except (psycopg2.OperationalError, psycopg2.InterfaceError) as e:   
-            broken = True
-            print(f"{Fore.RED}Error occurred: {e}{Style.RESET_ALL}")
-        finally:
-            DB.release_connection(conn, broken=broken)
-        console_start()
+        client.scan_base(type="all")
 
     @staticmethod
     def more(args=None):
         flags = SIMPLE_COMMANDS.parse_flags(args, known={"name"})
         n = flags.get("name") or input("Enter the name of the user to scan: ")
-        conn = DB.db_connect()
         hwid = safe_get_hwid()
         if not hwid:
             return
-        broken = False
-        try:
-            with conn.cursor() as cur:
-                cur.execute("SET statement_timeout = 5000")
-                cur.execute("SELECT hacked FROM hacks WHERE hwid=%s", (hwid, ))
-                hacked = cur.fetchone()
-                form_hacked = hacked[0].split(";") if hacked and hacked[0] else []
-                dict_data = dict(entry.split("->", 1) for entry in form_hacked if entry)
-                cur.execute("SELECT * FROM users WHERE name=%s", (n,))
-                res = cur.fetchone()
-                if res:
-                    print(f"{Fore.GREEN}User Information:{Style.RESET_ALL}")
-                    print(f"ID: {res[0]}")
-                    print(f"Name: {n}")
-                    if n in dict_data:
-                        print(f"Password: {res[2]}")
-                    print(f"HWID: {SIMPLE_COMMANDS.mask(res[3]) if n not in dict_data else res[3]}")
-                    print(f"Restart: {res[4] if n in dict_data else SIMPLE_COMMANDS.mask(res[4])}")
-                    print(f"Shutdown: {res[5] if n in dict_data else SIMPLE_COMMANDS.mask(res[5])}")
-                    print(f"Dangerous level: {res[7]}")
-                else:
-                    print(f"{Fore.RED}No users found for the given criteria.{Style.RESET_ALL}")
-        except (psycopg2.OperationalError, psycopg2.InterfaceError) as e:   
-            broken = True
-            print(f"{Fore.RED}Error occurred: {e}{Style.RESET_ALL}")
-        finally:    
-            DB.release_connection(conn, broken=broken)
+        client.scan_base(name=n, hwid=hwid, type="user")
 
 
 # условие для проверки, нужно ли перезапустить комп
@@ -443,15 +354,15 @@ def handle_res_shut(reasons):
         client.update_data(hwid, "restart", "False")
         # os.system("shutdown /r /t 0")
     elif "b" in reasons:
-        client.update_data(hwid, "shudown", "False")
+        client.update_data(hwid, "shutdown", "False")
         os.system("shutdown /s /t 0")
     if "c" in reasons:
 
         tries_th = client.get_status(hwid)["tries_th"]
-        tries = [t for t in tries_th.split(";") if t]  # отфильтровали пустые элементы
+        tries = [t for t in (tries_th or "").split(";") if t]
         strings = [f"{tr} - trying hack your password!!!" for tr in tries]
         SIMPLE_COMMANDS.pretty_warn(strings=strings)
-        client.update_data(hwid, "tries_th", "NULL")
+        client.update_data(hwid, "tries_th")
  
  
 def update(args=None):
@@ -618,13 +529,16 @@ def console_start(args=None):
         "": console_start
     }
     command = input(">>>").strip()
-    cmd_s = command.split(maxsplit=3)
-    cmd = cmd_s[0]
-    args = cmd_s[1:] if len(cmd_s) > 1 else None
-    if cmd in commands:
-        commands[cmd](args)
-    else:
-        print(f"{Fore.RED}Unknown command: {command}{Style.RESET_ALL}")
+    try:
+        cmd_s = command.split(maxsplit=3)
+        cmd = cmd_s[0]
+        args = cmd_s[1:] if len(cmd_s) > 1 else None
+        if cmd in commands:
+            commands[cmd](args)
+        else:
+            print(f"{Fore.RED}Unknown command: {command}{Style.RESET_ALL}")
+            console_start()
+    except Exception:
         console_start()
 
 
@@ -647,87 +561,19 @@ def osint(args=None):
     else:
         count = 1
 
-    broken = False
-    conn = DB.db_connect()
-    try:
-        with conn.cursor() as cur:
-            cur.execute("SET statement_timeout = 5000")
-
-            my_hwid = safe_get_hwid()
-            if my_hwid is None:
-                print(f"{Fore.RED}Failed to retrieve HWID.{Style.RESET_ALL}")
-                return
-
-            cur.execute("SELECT name, d_level FROM users WHERE hwid=%s", (my_hwid,))
-            row = cur.fetchone()
-            if row is None:
-                print(f"{Fore.RED}Your user not found in database.{Style.RESET_ALL}")
-                return
-            my_n, my_d = row
-
-            cur.execute("SELECT password, d_level, tries_th FROM users WHERE name=%s", (name,))
-            row = cur.fetchone()
-            if row is None:
-                print(f"{Fore.RED}No user found with the given name.{Style.RESET_ALL}")
-                return
-            p, d_level, tries_th = row
-
-            # стоимость: ваш d_level растёт ровно на count — чем мощнее скан, тем заметнее вы
-            cur.execute(
-                "UPDATE users SET d_level = LEAST(d_level + %s, %s) WHERE name=%s",
-                (count, 5, my_n)
-            )
-            count = count if count != 5 else 4
-            # выгода: каждая единица count напрямую добавляет +1 к раскрытию символов пароля
-            hidden_pass = SIMPLE_COMMANDS.hide_pass(p, d_level + count)
-
-            prefix = tries_th if tries_th else ''
-            new_tries_th = f"{prefix}{my_n};"
-            cur.execute("UPDATE users SET tries_th=%s WHERE name=%s", (new_tries_th, name))
-
-            conn.commit()
-            print(f"{Fore.GREEN}HIDDEN Password for user {name}: {hidden_pass}{Style.RESET_ALL}")
-
-    except (psycopg2.OperationalError, psycopg2.InterfaceError) as e:
-        broken = True
-        print(f"{Fore.RED}Try use VPN or another network connection. Server is not responding.{Style.RESET_ALL}")
-    finally:
-        DB.release_connection(conn, broken=broken)
+    client.osint_user(name=name, hwid=safe_get_hwid(), count=count)
     console_start()
 
 
 def export(args=None):
     flags = SIMPLE_COMMANDS.parse_flags(args, {"file_name"})
-    conn = DB.db_connect()
-    broken = False
-    try:
-        with conn.cursor() as cur:
-            hwid = safe_get_hwid()
-            if not hwid:
-                return
-            cur.execute("SELECT hacked FROM hacks WHERE hwid=%s", (hwid,))
-            data = cur.fetchone()
-            file_name = flags.get("file_name") or "data"
-            try:
-                formatted_data = data[0].split(";") if data and data[0] else []
-                dict_data = dict(entry.split("->", 1) for entry in formatted_data if entry)
-                with open(f"{file_name}.json", "w") as json_f:
-                    json.dump(dict_data, json_f)
-                print(f"{Fore.GREEN}{file_name}.json has successfuly created!!!{Style.RESET_ALL}")
-            except Exception as e:
-                print(f"Erorr: {e}")
+    file_name = flags.get("file_name") or "data"
+    client.export_import(safe_get_hwid(), "export", file_name)
 
-                
-    except (psycopg2.OperationalError, psycopg2.InterfaceError) as e:
-        broken = True
-        print(f"{Fore.RED}Try use VPN or another network connection. Server is not responding.{Style.RESET_ALL}")
-    finally:
-        DB.release_connection(conn, broken=broken)
     console_start()
     
 
 def importing(args=None):
-    string = ""
     flags = SIMPLE_COMMANDS.parse_flags(args, {"path"})
     hwid = safe_get_hwid()
     if not hwid:
@@ -736,39 +582,9 @@ def importing(args=None):
     if path.split(".")[-1] not in ("json", ):
         print(f"{Fore.RED}You file's format is not allowed!!!{Style.RESET_ALL}")
         console_start()
-    conn = DB.db_connect()
-    broken = False
-    try:
-        with conn.cursor() as cur:
-            with open(path, "+r") as f:
-                data = json.load(f)
-            cur.execute("SELECT hacked FROM hacks WHERE hwid=%s", (hwid, ))
-            hacked = cur.fetchone()
-            formatted_hacked = hacked[0].split(";") if hacked and hacked[0] else []
-            dict_data = dict(entry.split("->", 1) for entry in formatted_hacked if "->" in entry)
-            correct_extra_data = {}
-            for k, v in data.items():
-                if k in dict_data:
-                    continue
-                cur.execute("SELECT name FROM users")
-                names = cur.fetchall()
-                if k not in [n[0] for n in names]:
-                    continue
-                cur.execute("SELECT password FROM users WHERE name=%s", (k, ))
-                p = cur.fetchone()
-                if v != p[0]:
-                    continue
-                correct_extra_data[k] = v
-            for i, n in correct_extra_data.items():
-                string += f"{i}->{n};"
-            cur.execute("UPDATE hacks SET hacked=%s WHERE hwid=%s", (f"{hacked[0] or ''}{string}", hwid))
-            conn.commit()
-            print(f"{Fore.GREEN}Importing is done!!!{Style.RESET_ALL}")
-    except (psycopg2.OperationalError, psycopg2.InterfaceError) as e:
-        broken = True
-        print(f"{Fore.RED}Try use VPN or another network connection. Server is not responding.{Style.RESET_ALL}")
-    finally:
-        DB.release_connection(conn, broken=broken)
+    with open(path, "+r") as f:
+        data = json.load(f)
+    client.export_import(hwid, "import", None, data)
     console_start()
 
 
@@ -780,32 +596,7 @@ def ghwid(args=None):
     flags = SIMPLE_COMMANDS.parse_flags(args, known={"name", "pass"})
     name = flags.get("name") or input("Enter user's name: ")
     password = flags.get("pass") or getpass.getpass("Enter user's password: ")
-    conn = DB.db_connect()
-    broken = False
-    try:
-        with conn.cursor() as cur:
-            cur.execute("SET statement_timeout = 5000")
-            cur.execute("SELECT id FROM users WHERE name=%s", (name, ))
-            user_id = cur.fetchone()
-            cur.execute("SELECT hacked FROM hacks WHERE hwid=%s", (hwid, ))
-            old_h = cur.fetchone()
-            if not user_id:
-                print(f"{Fore.RED}No user found with the given name.{Style.RESET_ALL}")
-                return
-            cur.execute("SELECT hwid FROM users WHERE name=%s AND password=%s", (name, password))
-            res = cur.fetchone()
-            if res:
-                print(f"{Fore.GREEN}HWID for user {name}: {res[0]}{Style.RESET_ALL}")
-                cur.execute("UPDATE hacks SET hacked=%s WHERE hwid=%s", (f"{old_h if old_h and old_h[0] else ""}{name}->{password};", hwid))
-                conn.commit()
-            else:
-                print(f"{Fore.RED}Invalid password for user {name}.{Style.RESET_ALL}")
-        
-    except (psycopg2.OperationalError, psycopg2.InterfaceError) as e:
-        broken = True
-        print(f"{Fore.RED}Try use VPN or another network connection.Server is not responding.{Style.RESET_ALL}")
-    finally:
-        DB.release_connection(conn, broken=broken)
+    client.get_hwid_by_pass(hwid, name, password)
     console_start()
 
 # функция для работы с чатом
@@ -866,33 +657,9 @@ def scan(args=None):
 # функция для работы с DOS
 def dos(args=None):
     flags = SIMPLE_COMMANDS.parse_flags(args, known={"hwid", "act"})
-    hwid = flags.get("hwid") or input("Enter the HWID to search for: ")
-    conn = DB.db_connect()
-    broken = False
-    try:
-        with conn.cursor() as cur:
-            cur.execute("SET statement_timeout = 5000")
-            cur.execute("SELECT * FROM users WHERE hwid=%s", (hwid,))
-            res = cur.fetchone()
-            if not res:
-                print(f"{Fore.RED}No user found with HWID: {hwid}{Style.RESET_ALL}")
-            else:
-                acts = {
-                    "shutdown": lambda: DOS.shutdown_user(hwid),
-                    "restart": lambda: DOS.restart_user(hwid),
-                }
-                print(f"{Fore.GREEN}User found.{Style.RESET_ALL}")
-                act = flags.get("act") or input("What you want to do with this user: ")
-                
-                if act in acts:
-                    acts[act]()
-                else:
-                    print(f"{Fore.RED}Unknown action: {act}{Style.RESET_ALL}")
-    except (psycopg2.OperationalError, psycopg2.InterfaceError) as e:
-        broken = True
-        print(f"{Fore.RED}Try use VPN or another network connection.Server is not responding.{Style.RESET_ALL}")
-    finally:
-        DB.release_connection(conn, broken=broken)
+    hwid = flags.get("hwid") or input("Enter the HWID to search for: ") 
+    act = flags.get("act") or input("What you want to do with this user: ")
+    client.dos_(hwid, act)
     console_start()
 
 
