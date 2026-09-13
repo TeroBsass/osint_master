@@ -31,7 +31,7 @@ var
   ExePath: string;
   Attempts: Integer;
 begin
-  ExePath := ExpandConstant('{localappdata}\Osint Master\mark.exe');
+  ExePath := ExpandConstant('{app}\mark.exe');
   Attempts := 0;
   while IsFileLocked(ExePath) and (Attempts < 20) do
   begin
@@ -41,7 +41,6 @@ begin
   Result := True;
 end;
 
-[Code]
 procedure CurStepChanged(CurStep: TSetupStep);
 var
   EnvPath: string;
@@ -53,7 +52,7 @@ begin
   begin
     EnvPath := ExpandConstant('{app}\.env');
     if not FileExists(EnvPath) then
-      SaveStringToFile(EnvPath, 'API_BASE_URL=https://<ваш-сервис>.onrender.com' + #13#10, False)
+      SaveStringToFile(EnvPath, 'API_BASE_URL=https://back-osint.onrender.com' + #13#10, False)
     else
     begin
       LoadStringsFromFile(EnvPath, Lines);
@@ -62,7 +61,7 @@ begin
         if Pos('API_BASE_URL=', Lines[I]) = 1 then
           Found := True;
       if not Found then
-        SaveStringToFile(EnvPath, 'API_BASE_URL=https://<ваш-сервис>.onrender.com' + #13#10, True);
+        SaveStringToFile(EnvPath, 'API_BASE_URL=https://back-osint.onrender.com' + #13#10, True);
     end;
   end;
 end;

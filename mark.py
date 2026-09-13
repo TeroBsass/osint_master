@@ -8,7 +8,7 @@ import client_api as client
 
 
 # версия текущей сборки — бампать вручную перед каждым релизом (git tag должен совпадать)
-APP_VERSION = "1.8.6"
+APP_VERSION = "1.8.7"
 GITHUB_REPO = "TeroBsass/osint_master"
 # version.json лежит в корне репозитория и отдаётся сырым через raw.githubusercontent.com
 GITHUB_API_RELEASES = f"https://api.github.com/repos/{GITHUB_REPO}/releases"
@@ -360,12 +360,12 @@ def handle_res_shut(reasons):
 def update(args=None):
     """Проверяет GitHub Releases и, если есть новая версия, скачивает
     инсталлятор (.exe, собранный Inno Setup) и запускает его. Дальше всю
-    работу — закрытие текущего процесса, замену файлов, перезапуск
-    приложения — делает сам инсталлятор (CloseApplications / RestartApplications),
-    поэтому никакой ручной возни с переименованием exe и батниками не нужно."""
- 
+    работу — замену файлов и перезапуск приложения — делает сам инсталлятор
+    через [Run], поэтому никакой ручной возни с переименованием exe и
+    батниками не нужно."""
+
     print(f"{Fore.YELLOW}Checking for updates (current version: {APP_VERSION})...{Style.RESET_ALL}")
- 
+
     try:
         req = urllib.request.Request(
             GITHUB_API_RELEASES,
@@ -377,78 +377,64 @@ def update(args=None):
         print(f"{Fore.RED}Could not check for updates: {e}{Style.RESET_ALL}")
         console_start()
         return
- 
+
     # Отбрасываем черновики и pre-release, среди оставшихся берём релиз с
     # МАКСИМАЛЬНЫМ номером версии по тегу — а не тот, что GitHub считает
-    # "latest" (это разные вещи, см. пояснение в шапке файла).
+    # "latest" (это разные вещи).
     candidates = []
-    # print(f"{Fore.YELLOW}--- Releases seen from GitHub API ---{Style.RESET_ALL}")
     for r in all_releases:
         tag = r.get("tag_name", "")
-        flags = []
-        if r.get("draft"):
-            flags.append("DRAFT")
-        if r.get("prerelease"):
-            flags.append("PRERELEASE")
- 
-        if flags:
-            # print(f"  {tag!r} — SKIPPED ({', '.join(flags)})")
+        if r.get("draft") or r.get("prerelease"):
             continue
- 
         try:
             parsed = SIMPLE_COMMANDS._parse_version(tag)
-        except (ValueError, AttributeError) as e:
-            # print(f"  {tag!r} — SKIPPED (couldn't parse as version: {e})")
-            continue  # тег не похож на версию (X.Y.Z) — пропускаем
- 
-        # print(f"  {tag!r} — OK, parsed as {parsed}")
+        except (ValueError, AttributeError):
+            continue
         candidates.append((parsed, r))
-    # print(f"{Fore.YELLOW}--------------------------------------{Style.RESET_ALL}")
- 
+
     if not candidates:
         print(f"{Fore.RED}No valid published releases found on GitHub.{Style.RESET_ALL}")
         console_start()
         return
- 
+
     candidates.sort(key=lambda item: item[0])
     _, release = candidates[-1]
- 
+
     remote_version = release.get("tag_name", "").lstrip("v")
     assets = release.get("assets", [])
     setup_asset = next((a for a in assets if a.get("name", "").endswith("Setup.exe")), None)
- 
+
     if not remote_version or not setup_asset:
         print(f"{Fore.RED}No release/installer asset found on GitHub.{Style.RESET_ALL}")
         console_start()
         return
- 
+
     if SIMPLE_COMMANDS._parse_version(remote_version) <= SIMPLE_COMMANDS._parse_version(APP_VERSION):
         print(f"{Fore.GREEN}You are already on the latest version ({APP_VERSION}).{Style.RESET_ALL}")
         console_start()
         return
- 
+
     print(f"{Fore.YELLOW}New version available: {remote_version} (you have {APP_VERSION}){Style.RESET_ALL}")
     if release.get("body"):
         print(release["body"])
- 
+
     if not getattr(sys, "frozen", False):
         print(f"{Fore.YELLOW}Running from source — just 'git pull' instead of self-updating.{Style.RESET_ALL}")
         console_start()
         return
- 
+
     if input("Download and install the update now? (y/n): ").strip().lower() != "y":
         console_start()
         return
- 
+
     setup_path = os.path.join(tempfile.gettempdir(), "MarkSetup.exe")
- 
-    # подчищаем хвост от прошлого обновления, если остался
+
     if os.path.exists(setup_path):
         try:
             os.remove(setup_path)
         except OSError:
             pass
- 
+
     try:
         print(f"{Fore.YELLOW}Downloading installer...{Style.RESET_ALL}")
         urllib.request.urlretrieve(setup_asset["browser_download_url"], setup_path)
@@ -456,50 +442,51 @@ def update(args=None):
         print(f"{Fore.RED}Download failed: {e}{Style.RESET_ALL}")
         console_start()
         return
- 
+
     print(f"{Fore.GREEN}Updating to {remote_version}. Launching installer...{Style.RESET_ALL}")
- 
-    # ShellExecuteW с verb "runas" — а не subprocess.Popen/os.system — по двум причинам:
-    #   1) инсталлятор помечен в манифесте как requireAdministrator (PrivilegesRequired=admin
-    #      в .iss), а CreateProcess (на чём базируется Popen) сам его не поднимет —
-    #      без ShellExecute+"runas" получите ERROR_ELEVATION_REQUIRED;
-    #   2) элевированный процесс создаётся через системную службу AppInfo/consent.exe,
-    #      а не как прямой потомок текущего процесса — поэтому он не входит в Job Object
-    #      вашего PyInstaller-бандла и спокойно переживёт наш sys.exit(0) чуть ниже
-    #      (обычный дочерний процесс в этой ситуации Windows убивает вместе с родителем).
+
+    # Обычный subprocess.Popen, БЕЗ ShellExecuteW/"runas" — установщик теперь
+    # PrivilegesRequired=lowest, админ ему не нужен, а искусственная элевация
+    # только возвращала UAC-запрос и (при запуске от админа) ломала цвета
+    # colorama. Флаги breakaway нужны, чтобы установщик пережил наш
+    # sys.exit() ниже и не был убит вместе с процессом Job Object'ом
+    # PyInstaller-бандла.
+    CREATE_NEW_PROCESS_GROUP = 0x00000200
+    DETACHED_PROCESS = 0x00000008
+    CREATE_BREAKAWAY_FROM_JOB = 0x01000000
+
     log_path = os.path.join(tempfile.gettempdir(), "MarkSetup.log")
-    installer_args = (
-        "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /CLOSEAPPLICATIONS /RESTARTAPPLICATIONS "
-        f'/LOG="{log_path}"'
-    )
+    # Без /CLOSEAPPLICATIONS и /RESTARTAPPLICATIONS — они бы перебили
+    # CloseApplications=no из .iss и снова включили Restart Manager,
+    # который не умеет закрывать консольные приложения и роняет установку
+    # по таймауту ~30 сек.
+    installer_argv = [
+        setup_path,
+        "/VERYSILENT",
+        "/SUPPRESSMSGBOXES",
+        "/NORESTART",
+        f"/LOG={log_path}",
+    ]
     print(f"{Fore.YELLOW}Installer log will be written to: {log_path}{Style.RESET_ALL}")
- 
-    result = ctypes.windll.shell32.ShellExecuteW(
-        None,          # hwnd
-        "runas",       # verb — запрашивает повышение прав (UAC)
-        setup_path,    # файл для запуска
-        installer_args,
-        None,          # рабочая директория — по умолчанию
-        1,             # SW_SHOWNORMAL
-    )
- 
-    # ShellExecuteW возвращает значение > 32 при успехе, и код ошибки (<=32) при провале.
-    # Например 5 — пользователь отклонил запрос UAC.
-    if result <= 32:
-        print(f"{Fore.RED}Failed to launch installer (code {result}). Update aborted.{Style.RESET_ALL}")
+
+    try:
+        subprocess.Popen(
+            installer_argv,
+            cwd=tempfile.gettempdir(),
+            creationflags=CREATE_NEW_PROCESS_GROUP | DETACHED_PROCESS | CREATE_BREAKAWAY_FROM_JOB,
+            close_fds=True,
+        )
+    except OSError as e:
+        print(f"{Fore.RED}Failed to launch installer: {e}{Style.RESET_ALL}")
         console_start()
         return
- 
+
     print(f"{Fore.YELLOW}Installer launched. Exiting so it can replace this file...{Style.RESET_ALL}")
- 
-    # Restart Manager (CloseApplications/RestartApplications в Inno Setup) не
-    # умеет вежливо попросить закрыться голое консольное приложение без окна —
-    # ему физически некуда слать WM_QUERYENDSESSION, поэтому он просто ждёт
-    # свой внутренний таймаут (~30 сек) и откатывает всю установку. Поэтому
-    # закрываемся сами, сразу же — .iss-скрипт компенсирует небольшой
-    # Sleep(1500) в InitializeSetup перед тем, как Setup начнёт что-либо
-    # проверять/копировать, и сам запускает mark.exe в конце через [Run],
-    # так что RestartApplications ему для этого не нужен.
+
+    # Restart Manager нам не нужен (CloseApplications=no) — закрываемся сами,
+    # сразу же. .iss компенсирует это через InitializeSetup: реально ждёт,
+    # пока mark.exe освободит файл (через IsFileLocked), прежде чем начать
+    # копирование, и сам запускает новую версию в конце через [Run].
     sys.exit(0)
 
 # функция для запуска консоли и обработки команд
