@@ -4,12 +4,17 @@ import hwid, getpass, os, time, sys
 from art import text2art
 from colorama import Fore, Style
 import threading, subprocess, ctypes, urllib.request
-dotenv.load_dotenv()
+if getattr(sys, "frozen", False):
+    base_dir = os.path.dirname(sys.executable)
+else:
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+
+dotenv.load_dotenv(os.path.join(base_dir, ".env"))
 import client_api as client
 
 
 # версия текущей сборки — бампать вручную перед каждым релизом (git tag должен совпадать)
-APP_VERSION = "1.9.7"
+APP_VERSION = "1.9.8"
 GITHUB_REPO = "TeroBsass/osint_master"
 _CRASH_LOG_DIR = os.path.join(os.environ.get("LOCALAPPDATA", os.path.expanduser("~")), "Osint Master")
 # version.json лежит в корне репозитория и отдаётся сырым через raw.githubusercontent.com
