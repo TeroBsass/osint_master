@@ -26,11 +26,12 @@ begin
   end;
 end;
 
-function InitializeSetup(): Boolean;
+function PrepareToInstall(var NeedsRestart: Boolean): String;
 var
   ExePath: string;
   Attempts: Integer;
 begin
+  Result := '';
   ExePath := ExpandConstant('{app}\mark.exe');
   Attempts := 0;
   while IsFileLocked(ExePath) and (Attempts < 20) do
@@ -38,7 +39,6 @@ begin
     Sleep(500);
     Attempts := Attempts + 1;
   end;
-  Result := True;
 end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
