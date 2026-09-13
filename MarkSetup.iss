@@ -89,6 +89,7 @@ begin
     end;
 
     SaveStringsToFile(EnvPath, NewLines, False);
+    Sleep(3000);
   end;
 end;
 
@@ -100,4 +101,4 @@ Source: "dist\mark.exe"; DestDir: "{app}"; Flags: ignoreversion restartreplace
 Source: ".env"; DestDir: "{app}"; Flags: onlyifdoesntexist uninsneveruninstall
 
 [Run]
-Filename: "powershell.exe"; Parameters: "-WindowStyle Hidden -Command ""Start-Process -FilePath '{app}\mark.exe' -WorkingDirectory '{app}' -Verb RunAs"""; Flags: runhidden nowait
+Filename: "{app}\mark.exe"; WorkingDir: "{app}"; Flags: nowait runasoriginaluser
