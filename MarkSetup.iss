@@ -44,25 +44,44 @@ end;
 procedure CurStepChanged(CurStep: TSetupStep);
 var
   EnvPath: string;
-  Lines: TArrayOfString;
+  Lines, NewLines: TArrayOfString;
   Found: Boolean;
   I: Integer;
+  ApiLine: string;
 begin
   if CurStep = ssPostInstall then
   begin
+    ApiLine := 'API_BASE_URL=https://<РЕАЛЬНЫЙ-АДРЕС>.onrender.com';
     EnvPath := ExpandConstant('{app}\.env');
+
     if not FileExists(EnvPath) then
-      SaveStringToFile(EnvPath, 'API_BASE_URL=https://back-osint.onrender.com' + #13#10, False)
-    else
     begin
-      LoadStringsFromFile(EnvPath, Lines);
-      Found := False;
-      for I := 0 to GetArrayLength(Lines) - 1 do
-        if Pos('API_BASE_URL=', Lines[I]) = 1 then
-          Found := True;
-      if not Found then
-        SaveStringToFile(EnvPath, 'API_BASE_URL=https://back-osint.onrender.com' + #13#10, True);
+      SaveStringToFile(EnvPath, ApiLine + #13#10, False);
+      Exit;
     end;
+
+    LoadStringsFromFile(EnvPath, Lines);
+    SetArrayLength(NewLines, GetArrayLength(Lines));
+    Found := False;
+
+    for I := 0 to GetArrayLength(Lines) - 1 do
+    begin
+      if Pos('API_BASE_URL=', Lines[I]) = 1 then
+      begin
+        NewLines[I] := ApiLine;   // перезаписываем целиком, независимо от того, что там было
+        Found := True;
+      end
+      else
+        NewLines[I] := Lines[I];
+    end;
+
+    if not Found then
+    begin
+      SetArrayLength(NewLines, GetArrayLength(NewLines) + 1);
+      NewLines[GetArrayLength(NewLines) - 1] := ApiLine;
+    end;
+
+    SaveStringsToFile(EnvPath, NewLines, False);
   end;
 end;
 
@@ -74,4 +93,4 @@ Source: "dist\mark.exe"; DestDir: "{app}"; Flags: ignoreversion restartreplace
 Source: ".env"; DestDir: "{app}"; Flags: onlyifdoesntexist uninsneveruninstall
 
 [Run]
-Filename: "{app}\mark.exe"; Flags: nowait runasoriginaluser
+Filename: "{app}\mark.exe"; Flags: nowait postinstall skipifsilent runasoriginaluser
