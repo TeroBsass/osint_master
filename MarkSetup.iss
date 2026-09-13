@@ -2,7 +2,7 @@
 AppId={{8A2F06F8-FC4F-4110-A43E-2DF88351943C}
 AppName=Osint Master
 AppVersion={#MyAppVersion}
-DefaultDirName={autopf}\Osint Master
+DefaultDirName={localappdata}\Osint Master
 CloseApplications=no
 PrivilegesRequired=lowest
 OutputBaseFilename=MarkSetup
