@@ -13,7 +13,7 @@ dotenv.load_dotenv(os.path.join(base_dir, ".env"))
 import client_api as client
 
 # версия текущей сборки — бампать вручную перед каждым релизом (git tag должен совпадать)
-APP_VERSION = "v2.1.1"
+APP_VERSION = "v2.1.2"
 GITHUB_REPO = "TeroBsass/osint_master"
 # version.json лежит в корне репозитория и отдаётся сырым через raw.githubusercontent.com
 GITHUB_API_RELEASES = f"https://api.github.com/repos/{GITHUB_REPO}/releases"
@@ -503,9 +503,10 @@ def update(args=None):
 
     installer_argv = [
         setup_path,
-        "/SILENT",              # /SILENT вместо /VERYSILENT решает проблему тихого завершения
+        "/VERYSILENT",
         "/SUPPRESSMSGBOXES",
         "/NORESTART",
+        "/RUNPOSTINSTALL",  # Принудительный запуск секции [Run] при тихой установке
         f"/LOG={log_path}",
     ]
     print(f"{Fore.YELLOW}Installer log will be written to: {log_path}{Style.RESET_ALL}")
