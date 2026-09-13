@@ -27,11 +27,11 @@ begin
 end;
 
 function PrepareToInstall(var NeedsRestart: Boolean): String;
+const
+  MaxAttempts = 60; // 60 * 500ms = 30 секунд на закрытие приложения
 var
   ExePath: string;
   Attempts: Integer;
-const
-  MaxAttempts = 60; // 60 * 500ms = 30 секунд на закрытие приложения
 begin
   Result := '';
   ExePath := ExpandConstant('{app}\mark.exe');
