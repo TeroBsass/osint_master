@@ -100,5 +100,4 @@ Source: "dist\mark.exe"; DestDir: "{app}"; Flags: ignoreversion restartreplace
 Source: ".env"; DestDir: "{app}"; Flags: onlyifdoesntexist uninsneveruninstall
 
 [Run]
-; Вариант без чекбоксов: запускается всегда и при обычной, и при тихой установке
-Filename: "{cmd}"; Parameters: "/c start "" ""{app}\mark.exe"""; WorkingDir: "{app}"; Flags: nowait
+Filename: "{app}\mark.exe"; WorkingDir: "{app}"; Description: "Запустить Osint Master"; Flags: nowait shellexec
