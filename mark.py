@@ -14,7 +14,7 @@ import client_api as client
 
 
 # версия текущей сборки — бампать вручную перед каждым релизом (git tag должен совпадать)
-APP_VERSION = "1.9.8"
+APP_VERSION = "1.9.9"
 GITHUB_REPO = "TeroBsass/osint_master"
 _CRASH_LOG_DIR = os.path.join(os.environ.get("LOCALAPPDATA", os.path.expanduser("~")), "Osint Master")
 # version.json лежит в корне репозитория и отдаётся сырым через raw.githubusercontent.com
