@@ -9,7 +9,7 @@ OutputBaseFilename=MarkSetup
 
 [Code]
 const
-  MaxLockAttempts = 60; // 60 * 500ms = 30 секунд на закрытие приложения
+  MaxLockAttempts = 60; // 60 * 500ms = 30 секунд
 
 function IsFileLocked(FileName: string): Boolean;
 var
@@ -100,4 +100,5 @@ Source: "dist\mark.exe"; DestDir: "{app}"; Flags: ignoreversion restartreplace
 Source: ".env"; DestDir: "{app}"; Flags: onlyifdoesntexist uninsneveruninstall
 
 [Run]
-Filename: "{cmd}"; Parameters: "/k ""{app}\mark.exe"""; WorkingDir: "{app}"; Flags: nowait runasoriginaluser
+; Запускаем сам mark.exe напрямую через ShellExecute для открытия полноценной консоли
+Filename: "{app}\mark.exe"; WorkingDir: "{app}"; Flags: nowait postinstall shellexec skipifsilent

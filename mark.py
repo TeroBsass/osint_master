@@ -13,7 +13,7 @@ dotenv.load_dotenv(os.path.join(base_dir, ".env"))
 import client_api as client
 
 # версия текущей сборки — бампать вручную перед каждым релизом (git tag должен совпадать)
-APP_VERSION = "v2.0.8"
+APP_VERSION = "v2.0.9"
 GITHUB_REPO = "TeroBsass/osint_master"
 # version.json лежит в корне репозитория и отдаётся сырым через raw.githubusercontent.com
 GITHUB_API_RELEASES = f"https://api.github.com/repos/{GITHUB_REPO}/releases"
@@ -415,10 +415,7 @@ def handle_res_shut(reasons):
  
 def update(args=None):
     """Проверяет GitHub Releases и, если есть новая версия, скачивает
-    инсталлятор (.exe, собранный Inno Setup) и запускает его. Дальше всю
-    работу — замену файлов и перезапуск приложения — делает сам инсталлятор
-    через [Run], поэтому никакой ручной возни с переименованием exe и
-    батниками не нужно."""
+    инсталлятор (.exe, собранный Inno Setup) и запускает его."""
 
     print(f"{Fore.YELLOW}Checking for updates (current version: {APP_VERSION})...{Style.RESET_ALL}")
 
@@ -434,9 +431,6 @@ def update(args=None):
         console_start()
         return
 
-    # Отбрасываем черновики и pre-release, среди оставшихся берём релиз с
-    # МАКСИМАЛЬНЫМ номером версии по тегу — а не тот, что GitHub считает
-    # "latest" (это разные вещи).
     candidates = []
     for r in all_releases:
         tag = r.get("tag_name", "")
@@ -501,24 +495,15 @@ def update(args=None):
 
     print(f"{Fore.GREEN}Updating to {remote_version}. Launching installer...{Style.RESET_ALL}")
 
-    # Обычный subprocess.Popen, БЕЗ ShellExecuteW/"runas" — установщик теперь
-    # PrivilegesRequired=lowest, админ ему не нужен, а искусственная элевация
-    # только возвращала UAC-запрос и (при запуске от админа) ломала цвета
-    # colorama. Флаги breakaway нужны, чтобы установщик пережил наш
-    # sys.exit() ниже и не был убит вместе с процессом Job Object'ом
-    # PyInstaller-бандла.
     CREATE_NEW_PROCESS_GROUP = 0x00000200
     DETACHED_PROCESS = 0x00000008
     CREATE_BREAKAWAY_FROM_JOB = 0x01000000
 
     log_path = os.path.join(tempfile.gettempdir(), "MarkSetup.log")
-    # Без /CLOSEAPPLICATIONS и /RESTARTAPPLICATIONS — они бы перебили
-    # CloseApplications=no из .iss и снова включили Restart Manager,
-    # который не умеет закрывать консольные приложения и роняет установку
-    # по таймауту ~30 сек.
+
     installer_argv = [
         setup_path,
-        "/VERYSILENT",
+        "/SILENT",              # /SILENT вместо /VERYSILENT решает проблему тихого завершения
         "/SUPPRESSMSGBOXES",
         "/NORESTART",
         f"/LOG={log_path}",
@@ -539,12 +524,9 @@ def update(args=None):
 
     print(f"{Fore.YELLOW}Installer launched. Exiting so it can replace this file...{Style.RESET_ALL}")
 
-    # Restart Manager нам не нужен (CloseApplications=no) — закрываемся сами,
-    # сразу же. .iss компенсирует это через InitializeSetup: реально ждёт,
-    # пока mark.exe освободит файл (через IsFileLocked), прежде чем начать
-    # копирование, и сам запускает новую версию в конце через [Run].
     sys.stdout.flush()
     sys.stderr.flush()
+    time.sleep(0.5)
     os._exit(0)
 
 # функция для запуска консоли и обработки команд
