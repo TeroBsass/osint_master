@@ -1,4 +1,5 @@
 import tempfile, json, colorama, dotenv
+import traceback
 import hwid, getpass, os, time, sys
 from art import text2art
 from colorama import Fore, Style
@@ -8,8 +9,9 @@ import client_api as client
 
 
 # версия текущей сборки — бампать вручную перед каждым релизом (git tag должен совпадать)
-APP_VERSION = "1.9.5"
+APP_VERSION = "1.9.6"
 GITHUB_REPO = "TeroBsass/osint_master"
+_CRASH_LOG_DIR = os.path.join(os.environ.get("LOCALAPPDATA", os.path.expanduser("~")), "Osint Master")
 # version.json лежит в корне репозитория и отдаётся сырым через raw.githubusercontent.com
 GITHUB_API_RELEASES = f"https://api.github.com/repos/{GITHUB_REPO}/releases"
 
@@ -673,5 +675,12 @@ if __name__ == "__main__":
         start()
     except KeyboardInterrupt:
         SIMPLE_COMMANDS.graceful_exit()
+    except Exception:
+        os.makedirs(_CRASH_LOG_DIR, exist_ok=True)
+        crash_log = os.path.join(_CRASH_LOG_DIR, "crash.log")
+        with open(crash_log, "a", encoding="utf-8") as f:
+            f.write(traceback.format_exc() + "\n")
+        print(f"{Fore.RED}Unexpected error — details saved to {crash_log}{Style.RESET_ALL}")
+        input("Press Enter to exit...")
 
     
