@@ -100,6 +100,5 @@ Source: "dist\mark.exe"; DestDir: "{app}"; Flags: ignoreversion restartreplace
 Source: ".env"; DestDir: "{app}"; Flags: onlyifdoesntexist uninsneveruninstall
 
 [Run]
-; Использование cmd.exe /c start открывает новое самостоятельное окно консоли для mark.exe
-; Флаг unchecked убирает блокировку выполнения при тихой установке (/SILENT и /VERYSILENT)
-Filename: "{cmd}"; Parameters: "/c start "" {app}\mark.exe"; WorkingDir: "{app}"; Flags: nowait postinstall unchecked
+; Вариант без чекбоксов: запускается всегда и при обычной, и при тихой установке
+Filename: "{cmd}"; Parameters: "/c start "" ""{app}\mark.exe"""; WorkingDir: "{app}"; Flags: nowait
