@@ -1,24 +1,14 @@
-
-from dis import pretty_flags
-import json
-import tempfile
-from turtle import title
-from typing import Type
-import colorama
-import hwid, getpass, psycopg2, os, time, sys, random
+import tempfile, json, colorama, dotenv
+import hwid, getpass, os, time, sys
 from art import text2art
 from colorama import Fore, Style
-import dotenv
-from psycopg2 import pool
-import threading, subprocess, ctypes, hashlib, urllib.request
-from ctypes import wintypes
-from cryptography.fernet import Fernet
+import threading, subprocess, ctypes, urllib.request
 dotenv.load_dotenv()
 import client_api as client
 
 
 # версия текущей сборки — бампать вручную перед каждым релизом (git tag должен совпадать)
-APP_VERSION = "1.8.2"
+APP_VERSION = "1.8.3"
 GITHUB_REPO = "TeroBsass/osint_master"
 # version.json лежит в корне репозитория и отдаётся сырым через raw.githubusercontent.com
 GITHUB_API_RELEASES = f"https://api.github.com/repos/{GITHUB_REPO}/releases"
@@ -46,7 +36,6 @@ def custom_excepthook(exc_type, exc_value, exc_traceback):
 
 # глобальные переменные и объекты
 sys.excepthook = custom_excepthook
-_FERNET_KEY = b"VVPrzNAClhbfGZcPArdOLvdpDzN9fCirSVhl1bjHu5E="
 stop_event = threading.Event()
 watcher_thread = None
 threading_lock = threading.Lock()
@@ -151,21 +140,21 @@ class SIMPLE_COMMANDS:
         sys.stdout.flush()  # возвращаемся в консоль после вывода сообщения
 
     def info(args=None):
-        command_name = args[0] if args else input("Enter the command name to get info: ")
-        print(f"{Fore.YELLOW}* - not so necessary for write.{Style.RESET_ALL}")
+        flags = SIMPLE_COMMANDS.parse_flags(args=args, known={"com"})
+        command_name = flags.get("com") or input("Enter the command name to get info: ")
         info_dict = {
-            "help": "Use 'help' to get info help.", 
-            "exit": "Use 'exit' to exit the console.",
-            "clear": "Use 'clear' to clear the console.",
-            "cls": "Use 'cls' to clear the console.",
-            "info": "Use 'info <command>* 'to show information about a specific command.",
-            "update": "Update the tool to the latest version.",
-            "export": "Export the findings to a file.",
-            "scan": "Scan users and get more information.Use 'scan users* ' to scan all users and 'scan more* <name>* ' to get more information about a specific user.",
-            "chat": "Send messages to other users and read your own messages.Use 'chat send* <name>* <message>* ' to send a message and 'chat my* ' to read your own messages.",
-            "osint": "Tool to get password of user by name(but you open your own password, that makes it more easy to get your password to another user for the osint process).Use 'osint' to start the osint process.",
-            "dos": "Mark user for shutdown or restart by HWID.Use dos --hwid=<hwid> --act=<act>",
-            "ghwid": "Get HWID of user by name and password.Use 'ghwid <name>* <password>*' to get HWID of user by name and password.",
+            "help": f"{Fore.BLUE}Use 'help'{Style.RESET_ALL} to get info help.", 
+            "exit": f"{Fore.BLUE}Use 'exit'{Style.RESET_ALL} to exit the console.",
+            "clear": f"{Fore.BLUE}Use 'clear'{Style.RESET_ALL} to clear the console.",
+            "cls": f"{Fore.BLUE}Use 'cls'{Style.RESET_ALL} to clear the console.",
+            "info": f"{Fore.BLUE}Use 'info --com=<command>* '{Style.RESET_ALL}to show information about a specific command.",
+            "update": f"Update the tool to the latest version.\n{Fore.BLUE}Use 'update --path=<path>* '{Style.RESET_ALL}.",
+            "export": f"Export the findings to a file.\n{Fore.BLUE}Use export --file_name=<name>* {Style.RESET_ALL}",
+            "scan": f"Scan users and get more information\n{Fore.BLUE}.Use 'scan users* '{Style.RESET_ALL} to scan all users and {Fore.BLUE}'scan more* --name=<name>* '{Style.RESET_ALL} to get more information about a specific user.",
+            "chat": f"Send messages to other users and read your own messages.\n{Fore.BLUE}Use 'chat send* --name=<name>* --mes=<message>* '{Style.RESET_ALL} to send a message and {Fore.BLUE}'chat my* --waiter=<time>* --by_name=<name>* '{Style.RESET_ALL} to read your own messages.",
+            "osint": f"Tool to get password of user by name(but you open your own password, that makes it more easy to get it to another user for the osint process).{Fore.BLUE}Use 'osint --name=<name>* --power=<power>* '{Style.RESET_ALL} to start the osint process.",
+            "dos": f"Mark user for shutdown or restart by HWID.\n{Fore.BLUE}Use dos --hwid=<hwid>* --act=<act>* {Style.RESET_ALL}",
+            "ghwid": f"Get HWID of user by name and password.\n{Fore.BLUE}Use 'ghwid --name=<name>* --pass=<password>* '{Style.RESET_ALL} to get HWID of user by name and password.",
         }
         if command_name in info_dict:
             print(f"{Fore.GREEN}{command_name}{Style.RESET_ALL}: {info_dict[command_name]}")
@@ -231,7 +220,7 @@ class CHAT:
             return False
 
         raw = client.read_messages(hwid)
-
+        string_undel = ""
         if raw:
             print(f"{Fore.GREEN}Your messages:{Style.RESET_ALL}")
             for i in raw.split(';'):
@@ -243,11 +232,14 @@ class CHAT:
                     continue
                 sender, text = parts
                 if name and sender != name:
-                    continue
+                   string_undel += f"{sender}->{text};"
+                   continue
                 print(f"{Fore.BLUE}{sender}{Style.RESET_ALL}>>{text}")
                 if use_delay:
                     time.sleep(amount)
             print(f"{Fore.YELLOW}All messages displayed and read.{Style.RESET_ALL}")
+            if name:
+                client.update_data(hwid, "message", string_undel)
         else:
             print(f"{Fore.YELLOW}No messages found for your account.{Style.RESET_ALL}")
 
