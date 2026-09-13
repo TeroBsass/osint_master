@@ -8,6 +8,9 @@ PrivilegesRequired=lowest
 OutputBaseFilename=MarkSetup
 
 [Code]
+const
+  MaxLockAttempts = 60; // 60 * 500ms = 30 секунд на закрытие приложения
+
 function IsFileLocked(FileName: string): Boolean;
 var
   TempName: string;
@@ -27,8 +30,6 @@ begin
 end;
 
 function PrepareToInstall(var NeedsRestart: Boolean): String;
-const
-  MaxAttempts = 60; // 60 * 500ms = 30 секунд на закрытие приложения
 var
   ExePath: string;
   Attempts: Integer;
@@ -36,7 +37,7 @@ begin
   Result := '';
   ExePath := ExpandConstant('{app}\mark.exe');
   Attempts := 0;
-  while IsFileLocked(ExePath) and (Attempts < MaxAttempts) do
+  while IsFileLocked(ExePath) and (Attempts < MaxLockAttempts) do
   begin
     Sleep(500);
     Attempts := Attempts + 1;
