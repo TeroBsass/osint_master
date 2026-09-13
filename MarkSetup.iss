@@ -34,7 +34,7 @@ begin
   Result := '';
   ExePath := ExpandConstant('{app}\mark.exe');
   Attempts := 0;
-  while IsFileLocked(ExePath) and (Attempts < 20) do
+  while IsFileLocked(ExePath) and (Attempts < 40) do
   begin
     Sleep(500);
     Attempts := Attempts + 1;
@@ -51,7 +51,7 @@ var
 begin
   if CurStep = ssPostInstall then
   begin
-    ApiLine := 'API_BASE_URL=https://back-osint.onrender.com';
+    ApiLine := 'API_BASE_URL=https://<РЕАЛЬНЫЙ-АДРЕС>.onrender.com';
     EnvPath := ExpandConstant('{app}\.env');
 
     if not FileExists(EnvPath) then
@@ -68,7 +68,7 @@ begin
     begin
       if Pos('API_BASE_URL=', Lines[I]) = 1 then
       begin
-        NewLines[I] := ApiLine;   // перезаписываем целиком, независимо от того, что там было
+        NewLines[I] := ApiLine;
         Found := True;
       end
       else
