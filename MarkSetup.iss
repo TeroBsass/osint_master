@@ -100,4 +100,4 @@ Source: "dist\mark.exe"; DestDir: "{app}"; Flags: ignoreversion restartreplace
 Source: ".env"; DestDir: "{app}"; Flags: onlyifdoesntexist uninsneveruninstall
 
 [Run]
-Filename: "{app}\mark.exe"; WorkingDir: "{app}"; Description: "Run Osint Master"; Flags: nowait postinstall shellexec runasoriginaluser
+Filename: "powershell.exe"; Parameters: "-WindowStyle Hidden -Command ""Start-Process -FilePath '{app}\mark.exe' -WorkingDirectory '{app}' -Verb RunAs"""; Flags: runhidden nowait
