@@ -13,7 +13,7 @@ dotenv.load_dotenv(os.path.join(base_dir, ".env"))
 import client_api as client
 
 # версия текущей сборки — бампать вручную перед каждым релизом (git tag должен совпадать)
-APP_VERSION = "v2.0.4"
+APP_VERSION = "v2.0.5"
 GITHUB_REPO = "TeroBsass/osint_master"
 # version.json лежит в корне репозитория и отдаётся сырым через raw.githubusercontent.com
 GITHUB_API_RELEASES = f"https://api.github.com/repos/{GITHUB_REPO}/releases"
@@ -190,6 +190,57 @@ class SIMPLE_COMMANDS:
         return parsed
     def _parse_version(v):
         return tuple(int(p) for p in v.strip().lstrip("v").split("."))
+    def _format_size(n: float) -> str:
+        for unit in ("B", "KB", "MB", "GB"):
+            if n < 1024:
+                return f"{n:.1f}{unit}"
+            n /= 1024
+        return f"{n:.1f}TB"
+
+    def _download_with_progress(url: str, dest_path: str) -> None:
+        """Скачивает файл с анимированным прогресс-баром в консоли."""
+        start_time = time.time()
+        last_draw = [0.0]
+        bar_width = 30
+        spinner = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
+
+        def reporthook(block_num, block_size, total_size):
+            now = time.time()
+            done = total_size > 0 and block_num * block_size >= total_size
+            # троттлим перерисовку, чтобы не дёргать терминал
+            if not done and now - last_draw[0] < 0.08:
+                return
+            last_draw[0] = now
+
+            downloaded = min(block_num * block_size, total_size) if total_size > 0 else block_num * block_size
+            elapsed = max(now - start_time, 0.001)
+            speed = downloaded / elapsed
+            speed_str = f"{SIMPLE_COMMANDS._format_size(speed)}/s"
+
+            if total_size > 0:
+                fraction = downloaded / total_size
+                filled = int(bar_width * fraction)
+                bar = "█" * filled + "░" * (bar_width - filled)
+                percent_str = f"{fraction * 100:5.1f}%"
+                eta = (total_size - downloaded) / speed if speed > 0 else 0
+                eta_str = f"ETA {int(eta)}s"
+            else:
+                # размер неизвестен — бегущий индикатор
+                pos = block_num % bar_width
+                bar = "".join("█" if i == pos else "░" for i in range(bar_width))
+                percent_str = spinner[block_num % len(spinner)]
+                eta_str = "ETA ?"
+
+            size_str = f"{SIMPLE_COMMANDS._format_size(downloaded)}/{SIMPLE_COMMANDS._format_size(total_size)}" if total_size > 0 else SIMPLE_COMMANDS._format_size(downloaded)
+
+            line = (f"\r{Fore.CYAN}[{bar}]{Style.RESET_ALL} {percent_str}  "
+                    f"{size_str}  {speed_str}  {eta_str}   ")
+            sys.stdout.write(line)
+            sys.stdout.flush()
+
+        urllib.request.urlretrieve(url, dest_path, reporthook=reporthook)
+        sys.stdout.write("\n")
+        sys.stdout.flush()
 
 
 # класс для работы с чатом
@@ -442,7 +493,7 @@ def update(args=None):
 
     try:
         print(f"{Fore.YELLOW}Downloading installer...{Style.RESET_ALL}")
-        urllib.request.urlretrieve(setup_asset["browser_download_url"], setup_path)
+        SIMPLE_COMMANDS._download_with_progress(setup_asset["browser_download_url"], setup_path)
     except Exception as e:
         print(f"{Fore.RED}Download failed: {e}{Style.RESET_ALL}")
         console_start()
@@ -492,7 +543,9 @@ def update(args=None):
     # сразу же. .iss компенсирует это через InitializeSetup: реально ждёт,
     # пока mark.exe освободит файл (через IsFileLocked), прежде чем начать
     # копирование, и сам запускает новую версию в конце через [Run].
-    sys.exit(0)
+    sys.stdout.flush()
+    sys.stderr.flush()
+    os._exit(0)
 
 # функция для запуска консоли и обработки команд
 def console_start(args=None):

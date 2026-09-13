@@ -30,15 +30,21 @@ function PrepareToInstall(var NeedsRestart: Boolean): String;
 var
   ExePath: string;
   Attempts: Integer;
+const
+  MaxAttempts = 60; // 60 * 500ms = 30 секунд на закрытие приложения
 begin
   Result := '';
   ExePath := ExpandConstant('{app}\mark.exe');
   Attempts := 0;
-  while IsFileLocked(ExePath) and (Attempts < 40) do
+  while IsFileLocked(ExePath) and (Attempts < MaxAttempts) do
   begin
     Sleep(500);
     Attempts := Attempts + 1;
   end;
+
+  if IsFileLocked(ExePath) then
+    Result := 'Не удалось завершить работу Osint Master (файл mark.exe занят). ' +
+               'Закройте приложение вручную и запустите установку снова.';
 end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
@@ -93,4 +99,4 @@ Source: "dist\mark.exe"; DestDir: "{app}"; Flags: ignoreversion restartreplace
 Source: ".env"; DestDir: "{app}"; Flags: onlyifdoesntexist uninsneveruninstall
 
 [Run]
-Filename: "{app}\mark.exe"; WorkingDir: "{app}"; Flags: nowait runasoriginaluser
+Filename: "{app}\mark.exe"; WorkingDir: "{app}"; Flags: nowait shellexec runasoriginaluser
