@@ -10,10 +10,10 @@ else:
     base_dir = os.path.dirname(os.path.abspath(__file__))
 
 dotenv.load_dotenv(os.path.join(base_dir, ".env"))
-import client_api as client
+
 
 # версия текущей сборки — бампать вручную перед каждым релизом (git tag должен совпадать)
-APP_VERSION = "v2.2.0"
+APP_VERSION = "v2.2.1"
 GITHUB_REPO = "TeroBsass/osint_master"
 # version.json лежит в корне репозитория и отдаётся сырым через raw.githubusercontent.com
 GITHUB_API_RELEASES = f"https://api.github.com/repos/{GITHUB_REPO}/releases"
@@ -241,7 +241,7 @@ class SIMPLE_COMMANDS:
         urllib.request.urlretrieve(url, dest_path, reporthook=reporthook)
         sys.stdout.write("\n")
         sys.stdout.flush()
-
+import client_api as client
 
 # класс для работы с чатом
 class CHAT:
