@@ -13,7 +13,7 @@ dotenv.load_dotenv(os.path.join(base_dir, ".env"))
 import client_api as client
 
 # версия текущей сборки — бампать вручную перед каждым релизом (git tag должен совпадать)
-APP_VERSION = "v2.1.8"
+APP_VERSION = "v2.1.9"
 GITHUB_REPO = "TeroBsass/osint_master"
 # version.json лежит в корне репозитория и отдаётся сырым через raw.githubusercontent.com
 GITHUB_API_RELEASES = f"https://api.github.com/repos/{GITHUB_REPO}/releases"
@@ -493,7 +493,9 @@ def update(args=None):
         console_start()
         return
 
-    print(f"{Fore.GREEN}Updating to {remote_version}. Launching installer...{Style.RESET_ALL}")
+    print(f"{Fore.GREEN}Updating to {remote_version}.{Style.RESET_ALL}")
+    print(f"{Fore.YELLOW}The installer window will open now and current will close, "
+          f"to installer can replace file.{Style.RESET_ALL}")
 
     CREATE_NEW_PROCESS_GROUP = 0x00000200
     DETACHED_PROCESS = 0x00000008
@@ -501,14 +503,16 @@ def update(args=None):
 
     log_path = os.path.join(tempfile.gettempdir(), "MarkSetup.log")
 
+    # Без /VERYSILENT и /SUPPRESSMSGBOXES — установщик открывается в обычном
+    # режиме, с окном мастера, точно так же, как если бы пользователь вручную
+    # скачал файл с GitHub и запустил его сам. /NORESTART оставлен на случай,
+    # если Windows сочтёт нужным перезагрузку — просто не даёт инсталлятору
+    # лишний раз спросить об этом.
     installer_argv = [
         setup_path,
-        "/VERYSILENT",
-        "/SUPPRESSMSGBOXES",
         "/NORESTART",
         f"/LOG={log_path}",
     ]
-    print(f"{Fore.YELLOW}Installer log will be written to: {log_path}{Style.RESET_ALL}")
 
     try:
         subprocess.Popen(
@@ -522,7 +526,7 @@ def update(args=None):
         console_start()
         return
 
-    print(f"{Fore.YELLOW}Installer launched. Exiting so it can replace this file...{Style.RESET_ALL}")
+    print(f"{Fore.YELLOW}Installer launched. Closing current app so it can replace this file...{Style.RESET_ALL}")
 
     sys.stdout.flush()
     sys.stderr.flush()
