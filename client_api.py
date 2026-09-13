@@ -25,7 +25,17 @@ from mark import DOS as DOS
 
 from colorama import Fore, Style
 
-API_BASE_URL = os.environ.get("API_BASE_URL", "http://127.0.0.1:8000")
+def _api_base_url() -> str:
+    return os.environ.get("API_BASE_URL", "http://127.0.0.1:8000").rstrip("/")
+
+
+def _post(path: str, payload: dict = None, timeout: int = 40):
+    try:
+        resp = requests.post(f"{_api_base_url()}{path}", json=payload, timeout=timeout)
+    except requests.RequestException as e:
+        print(f"{Fore.RED}Try use VPN or another network connection. Server is not responding.{e}{Style.RESET_ALL}")
+        return None
+    return resp
 
 _TOKEN_DIR = os.path.join(os.environ.get("LOCALAPPDATA", os.path.expanduser("~")), "Osint Master")
 _TOKEN_PATH = os.path.join(_TOKEN_DIR, "device.token")
@@ -45,14 +55,6 @@ def _save_token(token: str):
     with open(_TOKEN_PATH, "w", encoding="utf-8") as f:
         f.write(token)
 
-
-def _post(path: str, payload: dict = None, timeout: int = 40):
-    try:
-        resp = requests.post(f"{API_BASE_URL}{path}", json=payload, timeout=timeout)
-    except requests.RequestException as e:
-        print(f"{Fore.RED}Try use VPN or another network connection. Server is not responding.{e}{Style.RESET_ALL}")
-        return None
-    return resp
 
 
 def start(hwid: str, console_start):
