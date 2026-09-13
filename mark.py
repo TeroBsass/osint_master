@@ -11,9 +11,8 @@ else:
 
 dotenv.load_dotenv(os.path.join(base_dir, ".env"))
 
-
 # версия текущей сборки — бампать вручную перед каждым релизом (git tag должен совпадать)
-APP_VERSION = "v2.2.2"
+APP_VERSION = "v2.2.3"
 GITHUB_REPO = "TeroBsass/osint_master"
 # version.json лежит в корне репозитория и отдаётся сырым через raw.githubusercontent.com
 GITHUB_API_RELEASES = f"https://api.github.com/repos/{GITHUB_REPO}/releases"
@@ -700,6 +699,16 @@ def start():
 
 # главная точка входа в программу
 if __name__ == "__main__":
+    if getattr(sys, "frozen", False):
+        _LOG_PATH = os.path.join(os.path.dirname(sys.executable), "startup.log")
+    else:
+        _LOG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "startup.log")
+
+    try:
+        with open(_LOG_PATH, "a", encoding="utf-8") as _f:
+            _f.write("=== process started ===\n")
+    except Exception:
+        pass
     colorama.init(convert=True, strip=False)
     if getattr(sys, "frozen", False):
         # чистим хвост от предыдущего update() — старый процесс уже закрылся,
@@ -708,6 +717,7 @@ if __name__ == "__main__":
             os.remove(sys.executable + ".old")
         except OSError:
             pass
+    
     watcher_thread = threading.Thread(target=watcher, daemon=True)
     watcher_thread.start()
     decay_thread = threading.Thread(target=decay_worker, daemon=True)
@@ -718,6 +728,11 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         SIMPLE_COMMANDS.graceful_exit()
     except Exception:
+        try:
+            with open(_LOG_PATH, "a", encoding="utf-8") as _f:
+                _f.write(traceback.format_exc() + "\n")
+        except Exception:
+            pass
         input("Press Enter to exit...")
 
     
