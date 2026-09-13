@@ -51,7 +51,7 @@ var
 begin
   if CurStep = ssPostInstall then
   begin
-    ApiLine := 'API_BASE_URL=https://<РЕАЛЬНЫЙ-АДРЕС>.onrender.com';
+    ApiLine := 'API_BASE_URL=https://back-osint.onrender.com';
     EnvPath := ExpandConstant('{app}\.env');
 
     if not FileExists(EnvPath) then
