@@ -24,7 +24,7 @@ except Exception:
     pass
 
 # версия текущей сборки — бампать вручную перед каждым релизом (git tag должен совпадать)
-APP_VERSION = "2.0.1"
+APP_VERSION = "2.0.2"
 GITHUB_REPO = "TeroBsass/osint_master"
 # version.json лежит в корне репозитория и отдаётся сырым через raw.githubusercontent.com
 GITHUB_API_RELEASES = f"https://api.github.com/repos/{GITHUB_REPO}/releases"
