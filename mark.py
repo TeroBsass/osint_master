@@ -12,19 +12,8 @@ else:
 dotenv.load_dotenv(os.path.join(base_dir, ".env"))
 import client_api as client
 
-_LOG_PATH = os.path.join(
-    os.path.dirname(sys.executable if getattr(sys, "frozen", False) else os.path.abspath(__file__)),
-    "startup.log",
-)
-
-try:
-    with open(_LOG_PATH, "a", encoding="utf-8") as _f:
-        _f.write("=== process started ===\n")
-except Exception:
-    pass
-
 # версия текущей сборки — бампать вручную перед каждым релизом (git tag должен совпадать)
-APP_VERSION = "v2.0.3"
+APP_VERSION = "2.0.4"
 GITHUB_REPO = "TeroBsass/osint_master"
 # version.json лежит в корне репозитория и отдаётся сырым через raw.githubusercontent.com
 GITHUB_API_RELEASES = f"https://api.github.com/repos/{GITHUB_REPO}/releases"
@@ -690,12 +679,6 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         SIMPLE_COMMANDS.graceful_exit()
     except Exception:
-        import traceback
-        try:
-            with open(_LOG_PATH, "a", encoding="utf-8") as _f:
-                _f.write(traceback.format_exc() + "\n")
-        except Exception:
-            pass
         input("Press Enter to exit...")
 
     
