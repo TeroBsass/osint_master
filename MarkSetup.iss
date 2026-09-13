@@ -8,20 +8,70 @@ PrivilegesRequired=lowest
 OutputBaseFilename=MarkSetup
 
 [Code]
-function InitializeSetup(): Boolean;
+function IsFileLocked(FileName: string): Boolean;
+var
+  TempName: string;
 begin
-  // небольшой запас по времени, чтобы наш процесс (который сам себя закрывает
-  // сразу после запуска этого инсталлятора) гарантированно успел отпустить
-  // файл mark.exe до того, как Setup попробует его перезаписать
-  Sleep(1500);
   Result := True;
+  if not FileExists(FileName) then
+  begin
+    Result := False;
+    Exit;
+  end;
+  TempName := FileName + '.lock_check';
+  if RenameFile(FileName, TempName) then
+  begin
+    RenameFile(TempName, FileName);
+    Result := False;
+  end;
+end;
+
+function InitializeSetup(): Boolean;
+var
+  ExePath: string;
+  Attempts: Integer;
+begin
+  ExePath := ExpandConstant('{localappdata}\Osint Master\mark.exe');
+  Attempts := 0;
+  while IsFileLocked(ExePath) and (Attempts < 20) do
+  begin
+    Sleep(500);
+    Attempts := Attempts + 1;
+  end;
+  Result := True;
+end;
+
+[Code]
+procedure CurStepChanged(CurStep: TSetupStep);
+var
+  EnvPath: string;
+  Lines: TArrayOfString;
+  Found: Boolean;
+  I: Integer;
+begin
+  if CurStep = ssPostInstall then
+  begin
+    EnvPath := ExpandConstant('{app}\.env');
+    if not FileExists(EnvPath) then
+      SaveStringToFile(EnvPath, 'API_BASE_URL=https://<ваш-сервис>.onrender.com' + #13#10, False)
+    else
+    begin
+      LoadStringsFromFile(EnvPath, Lines);
+      Found := False;
+      for I := 0 to GetArrayLength(Lines) - 1 do
+        if Pos('API_BASE_URL=', Lines[I]) = 1 then
+          Found := True;
+      if not Found then
+        SaveStringToFile(EnvPath, 'API_BASE_URL=https://<ваш-сервис>.onrender.com' + #13#10, True);
+    end;
+  end;
 end;
 
 [Icons]
 Name: "{autodesktop}\Osint Master"; Filename: "{app}\mark.exe"
 
 [Files]
-Source: "dist\mark.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "dist\mark.exe"; DestDir: "{app}"; Flags: ignoreversion restartreplace
 Source: ".env"; DestDir: "{app}"; Flags: onlyifdoesntexist uninsneveruninstall
 
 [Run]
