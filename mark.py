@@ -1,4 +1,11 @@
-import tempfile, json, colorama, dotenv
+import tempfile, json, colorama, dotenv, datetime
+if getattr(sys, "frozen", False):
+    def _crash_log(exc_type, exc_value, exc_tb):
+        crash_path = os.path.join(tempfile.gettempdir(), "mark_crash.log")
+        with open(crash_path, "a", encoding="utf-8") as f:
+            f.write(f"\n--- {datetime.datetime.now()} ---\n")
+            traceback.print_exception(exc_type, exc_value, exc_tb, file=f)
+    sys.excepthook = _crash_log
 import traceback
 import hwid, getpass, os, time, sys
 from art import text2art
@@ -13,7 +20,7 @@ dotenv.load_dotenv(os.path.join(base_dir, ".env"))
 import client_api as client
 
 # версия текущей сборки — бампать вручную перед каждым релизом (git tag должен совпадать)
-APP_VERSION = "v2.0.6"
+APP_VERSION = "v2.0.7"
 GITHUB_REPO = "TeroBsass/osint_master"
 # version.json лежит в корне репозитория и отдаётся сырым через raw.githubusercontent.com
 GITHUB_API_RELEASES = f"https://api.github.com/repos/{GITHUB_REPO}/releases"
