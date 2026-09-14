@@ -61,7 +61,14 @@ echo -e "\e[34m== 2. Чистая пересборка exe ==\e[0m"
 # версии, который потом безо всякой ошибки уйдёт в релиз под новым тегом
 # (именно так один раз в релиз 1.6.x улетел installer от 1.5.0).
 rm -rf dist build Output
-python -m PyInstaller --onefile "$ENTRY_SCRIPT"
+# --onedir, не --onefile: onefile-сборку Windows Defender (Wacatac.B!ml)
+# регулярно ложно детектировал прямо в момент первого запуска (эвристика
+# реагирует на "самораспаковывающийся exe запускает содержимое из temp") —
+# это и было причиной мигания консоли и несостоявшегося автоперезапуска
+# после update(). Раскладка exe + _internal/ в обычную папку такому не
+# подвержена. Итог сборки теперь dist/mark/mark.exe + dist/mark/_internal/,
+# см. соответствующие правки в [Files] $ISS_SCRIPT.
+python -m PyInstaller --onedir "$ENTRY_SCRIPT"
 # .env НЕ передаётся через --add-data — он не должен попасть внутрь самого exe,
 # в инсталлятор он подкладывается отдельно, см. [Files] в $ISS_SCRIPT
 

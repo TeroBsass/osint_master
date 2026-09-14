@@ -67,7 +67,11 @@ CloseApplicationsFilter={app}\{#MyAppExeName}
 RestartApplications=no
 
 [Files]
-Source: "dist\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
+; onedir-сборка PyInstaller кладёт exe и весь его _internal/ (DLL, python-раннтайм
+; и т.п.) в одну папку dist\mark\ — забираем её целиком, а не один файл, как
+; раньше при onefile. recursesubdirs/createallsubdirs — чтобы _internal\ и всё,
+; что внутри, тоже попало в {app} и корректно отслеживалось при удалении.
+Source: "dist\mark\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: ".env"; DestDir: "{app}"; Flags: onlyifdoesntexist
 
 [Run]
@@ -75,7 +79,7 @@ Source: ".env"; DestDir: "{app}"; Flags: onlyifdoesntexist
 ; GUI-режиме, и при /VERYSILENT (как раз тот случай, когда апдейт запущен
 ; из уже работающего приложения). "nowait" — Setup не ждёт, пока mark.exe
 ; завершится, это консольное приложение работает долго само по себе.
-Filename: "{app}\{#MyAppExeName}"; Flags: nowait skipifdoesntexist
+Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"; Flags: nowait skipifdoesntexist
 
 [Code]
 function InitializeSetup(): Boolean;

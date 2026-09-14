@@ -12,7 +12,7 @@ else:
 dotenv.load_dotenv(os.path.join(base_dir, ".env"))
 
 # версия текущей сборки — бампать вручную перед каждым релизом (git tag должен совпадать)
-APP_VERSION = "v2.3.8"
+APP_VERSION = "v2.3.9"
 GITHUB_REPO = "TeroBsass/osint_master"
 # version.json лежит в корне репозитория и отдаётся сырым через raw.githubusercontent.com
 GITHUB_API_RELEASES = f"https://api.github.com/repos/{GITHUB_REPO}/releases"
@@ -742,7 +742,10 @@ if __name__ == "__main__":
 
     try:
         with open(_LOG_PATH, "a", encoding="utf-8") as _f:
-            _f.write("=== process started ===\n")
+            # таймстемп нужен, чтобы по этому логу можно было понять, ЗАПУСКАЛСЯ
+            # ли вообще mark.exe после установки апдейта (а не только "когда-то
+            # раньше") — без времени все строки неотличимы друг от друга.
+            _f.write(f"=== process started {time.strftime('%Y-%m-%d %H:%M:%S')} ===\n")
     except Exception:
         pass
     colorama.init(convert=True, strip=False)
