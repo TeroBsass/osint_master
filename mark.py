@@ -12,7 +12,7 @@ else:
 dotenv.load_dotenv(os.path.join(base_dir, ".env"))
 
 # версия текущей сборки — бампать вручную перед каждым релизом (git tag должен совпадать)
-APP_VERSION = "v2.3.0"
+APP_VERSION = "v2.3.1"
 GITHUB_REPO = "TeroBsass/osint_master"
 # version.json лежит в корне репозитория и отдаётся сырым через raw.githubusercontent.com
 GITHUB_API_RELEASES = f"https://api.github.com/repos/{GITHUB_REPO}/releases"
@@ -492,27 +492,30 @@ def update(args=None):
         console_start()
         return
 
-    print(f"{Fore.GREEN}Updating to {remote_version}.{Style.RESET_ALL}")
-    print(f"{Fore.YELLOW}The installer window will open now and current will close, "
-          f"to installer can replace file.{Style.RESET_ALL}")
-
+    print(f"{Fore.GREEN}Updating to {remote_version}. Launching installer...{Style.RESET_ALL}")
+ 
+    # Инсталлятор теперь ставит в {localappdata} и собран с PrivilegesRequired=lowest
+    # — администратор ему не нужен, поэтому запускаем обычным subprocess.Popen,
+    # без ShellExecute/"runas" и без UAC-запроса. Раз элевации больше нет, нужен
+    # CREATE_BREAKAWAY_FROM_JOB: иначе инсталлятор — обычный дочерний процесс,
+    # и его убьёт вместе с нами Job Object PyInstaller-бандла, когда мы вызовем
+    # sys.exit(0) чуть ниже (это тот самый баг с start.bat в начале переписки).
+    log_path = os.path.join(tempfile.gettempdir(), "MarkSetup.log")
+    installer_argv = [
+        setup_path,
+        "/VERYSILENT",
+        "/SUPPRESSMSGBOXES",
+        "/NORESTART",
+        "/CLOSEAPPLICATIONS",
+        "/RESTARTAPPLICATIONS",
+        f"/LOG={log_path}",
+    ]
+    print(f"{Fore.YELLOW}Installer log will be written to: {log_path}{Style.RESET_ALL}")
+ 
     CREATE_NEW_PROCESS_GROUP = 0x00000200
     DETACHED_PROCESS = 0x00000008
     CREATE_BREAKAWAY_FROM_JOB = 0x01000000
-
-    log_path = os.path.join(tempfile.gettempdir(), "MarkSetup.log")
-
-    # Без /VERYSILENT и /SUPPRESSMSGBOXES — установщик открывается в обычном
-    # режиме, с окном мастера, точно так же, как если бы пользователь вручную
-    # скачал файл с GitHub и запустил его сам. /NORESTART оставлен на случай,
-    # если Windows сочтёт нужным перезагрузку — просто не даёт инсталлятору
-    # лишний раз спросить об этом.
-    installer_argv = [
-        setup_path,
-        "/NORESTART",
-        f"/LOG={log_path}",
-    ]
-
+ 
     try:
         subprocess.Popen(
             installer_argv,
@@ -521,17 +524,21 @@ def update(args=None):
             close_fds=True,
         )
     except OSError as e:
-        print(f"{Fore.RED}Failed to launch installer: {e}{Style.RESET_ALL}")
+        print(f"{Fore.RED}Failed to launch installer: {e}. Update aborted.{Style.RESET_ALL}")
         console_start()
         return
-
-    print(f"{Fore.YELLOW}Installer launched. Closing current app so it can replace this file...{Style.RESET_ALL}")
-
-    sys.stdout.flush()
-    sys.stderr.flush()
-    time.sleep(0.5)
-    os._exit(0)
-
+ 
+    print(f"{Fore.YELLOW}Installer launched. Exiting so it can replace this file...{Style.RESET_ALL}")
+ 
+    # Restart Manager (CloseApplications/RestartApplications в Inno Setup) не
+    # умеет вежливо попросить закрыться голое консольное приложение без окна —
+    # ему физически некуда слать WM_QUERYENDSESSION, поэтому он просто ждёт
+    # свой внутренний таймаут (~30 сек) и откатывает всю установку. Поэтому
+    # закрываемся сами, сразу же — .iss-скрипт компенсирует небольшой
+    # Sleep(1500) в InitializeSetup перед тем, как Setup начнёт что-либо
+    # проверять/копировать, и сам запускает mark.exe в конце через [Run],
+    # так что RestartApplications ему для этого не нужен.
+    sys.exit(0)
 # функция для запуска консоли и обработки команд
 def console_start(args=None):
     commands = {
