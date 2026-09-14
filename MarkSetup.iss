@@ -2,9 +2,9 @@
 AppId={{8A2F06F8-FC4F-4110-A43E-2DF88351943C}
 AppName=Osint Master
 AppVersion={#MyAppVersion}
-DefaultDirName={autopf}\Osint Master
+DefaultDirName={localappdata}\Osint Master
 CloseApplications=no
-PrivilegesRequired=admin
+PrivilegesRequired=lowest
 OutputBaseFilename=MarkSetup
 
 [Code]
@@ -22,4 +22,4 @@ Source: "dist/mark.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: ".env"; DestDir: "{app}"; Flags: onlyifdoesntexist uninsneveruninstall
 
 [Run]
-Filename: "{app}\mark.exe"; Flags: nowait runasoriginaluser; Description: "Run Osint Master";
+Filename: "{app}\mark.exe"; WorkingDir: "{app}"; Flags: nowait
