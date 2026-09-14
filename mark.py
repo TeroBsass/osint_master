@@ -12,7 +12,7 @@ else:
 dotenv.load_dotenv(os.path.join(base_dir, ".env"))
 
 # версия текущей сборки — бампать вручную перед каждым релизом (git tag должен совпадать)
-APP_VERSION = "v2.3.6"
+APP_VERSION = "v2.3.7"
 GITHUB_REPO = "TeroBsass/osint_master"
 # version.json лежит в корне репозитория и отдаётся сырым через raw.githubusercontent.com
 GITHUB_API_RELEASES = f"https://api.github.com/repos/{GITHUB_REPO}/releases"
@@ -414,10 +414,13 @@ def handle_res_shut(reasons):
  
 def update(args=None):
     """Проверяет GitHub Releases и, если есть новая версия, скачивает
-    инсталлятор (.exe, собранный Inno Setup) и запускает его."""
-
+    инсталлятор (.exe, собранный Inno Setup) и запускает его. Дальше всю
+    работу — закрытие текущего процесса, замену файлов, перезапуск
+    приложения — делает сам инсталлятор (CloseApplications / RestartApplications),
+    поэтому никакой ручной возни с переименованием exe и батниками не нужно."""
+ 
     print(f"{Fore.YELLOW}Checking for updates (current version: {APP_VERSION})...{Style.RESET_ALL}")
-
+ 
     try:
         req = urllib.request.Request(
             GITHUB_API_RELEASES,
@@ -429,69 +432,86 @@ def update(args=None):
         print(f"{Fore.RED}Could not check for updates: {e}{Style.RESET_ALL}")
         console_start()
         return
-
+ 
+    # Отбрасываем черновики и pre-release, среди оставшихся берём релиз с
+    # МАКСИМАЛЬНЫМ номером версии по тегу — а не тот, что GitHub считает
+    # "latest" (это разные вещи, см. пояснение в шапке файла).
     candidates = []
+    print(f"{Fore.YELLOW}--- Releases seen from GitHub API ---{Style.RESET_ALL}")
     for r in all_releases:
         tag = r.get("tag_name", "")
-        if r.get("draft") or r.get("prerelease"):
+        flags = []
+        if r.get("draft"):
+            flags.append("DRAFT")
+        if r.get("prerelease"):
+            flags.append("PRERELEASE")
+ 
+        if flags:
+            print(f"  {tag!r} — SKIPPED ({', '.join(flags)})")
             continue
+ 
         try:
             parsed = SIMPLE_COMMANDS._parse_version(tag)
-        except (ValueError, AttributeError):
-            continue
+        except (ValueError, AttributeError) as e:
+            print(f"  {tag!r} — SKIPPED (couldn't parse as version: {e})")
+            continue  # тег не похож на версию (X.Y.Z) — пропускаем
+ 
+        print(f"  {tag!r} — OK, parsed as {parsed}")
         candidates.append((parsed, r))
-
+    print(f"{Fore.YELLOW}--------------------------------------{Style.RESET_ALL}")
+ 
     if not candidates:
         print(f"{Fore.RED}No valid published releases found on GitHub.{Style.RESET_ALL}")
         console_start()
         return
-
+ 
     candidates.sort(key=lambda item: item[0])
     _, release = candidates[-1]
-
+ 
     remote_version = release.get("tag_name", "").lstrip("v")
     assets = release.get("assets", [])
     setup_asset = next((a for a in assets if a.get("name", "").endswith("Setup.exe")), None)
-
+ 
     if not remote_version or not setup_asset:
         print(f"{Fore.RED}No release/installer asset found on GitHub.{Style.RESET_ALL}")
         console_start()
         return
-
+ 
     if SIMPLE_COMMANDS._parse_version(remote_version) <= SIMPLE_COMMANDS._parse_version(APP_VERSION):
         print(f"{Fore.GREEN}You are already on the latest version ({APP_VERSION}).{Style.RESET_ALL}")
         console_start()
         return
-
+ 
     print(f"{Fore.YELLOW}New version available: {remote_version} (you have {APP_VERSION}){Style.RESET_ALL}")
     if release.get("body"):
         print(release["body"])
-
+ 
     if not getattr(sys, "frozen", False):
         print(f"{Fore.YELLOW}Running from source — just 'git pull' instead of self-updating.{Style.RESET_ALL}")
         console_start()
         return
-
+ 
     if input("Download and install the update now? (y/n): ").strip().lower() != "y":
         console_start()
         return
-
+ 
     setup_path = os.path.join(tempfile.gettempdir(), "MarkSetup.exe")
-
+ 
+    # подчищаем хвост от прошлого обновления, если остался
     if os.path.exists(setup_path):
         try:
             os.remove(setup_path)
         except OSError:
             pass
-
+ 
     try:
         print(f"{Fore.YELLOW}Downloading installer...{Style.RESET_ALL}")
-        SIMPLE_COMMANDS._download_with_progress(setup_asset["browser_download_url"], setup_path)
+        urllib.request.urlretrieve(setup_asset["browser_download_url"], setup_path)
     except Exception as e:
         print(f"{Fore.RED}Download failed: {e}{Style.RESET_ALL}")
         console_start()
         return
-
+ 
     print(f"{Fore.GREEN}Updating to {remote_version}. Launching installer...{Style.RESET_ALL}")
  
     # Инсталлятор теперь ставит в {localappdata} и собран с PrivilegesRequired=lowest
@@ -500,6 +520,16 @@ def update(args=None):
     # CREATE_BREAKAWAY_FROM_JOB: иначе инсталлятор — обычный дочерний процесс,
     # и его убьёт вместе с нами Job Object PyInstaller-бандла, когда мы вызовем
     # sys.exit(0) чуть ниже (это тот самый баг с start.bat в начале переписки).
+    # ВАЖНО: /RESTARTAPPLICATIONS сюда намеренно НЕ добавляем, хотя /CLOSEAPPLICATIONS
+    # есть. Если apдейт запущен из уже работающего mark.exe (а не так, что человек
+    # вручную скачал инсталлятор с GitHub, когда приложение и не запущено), Restart
+    # Manager запоминает закрытый им процесс и с /RESTARTAPPLICATIONS сам пытается
+    # перезапустить его СВОИМИ средствами — в дополнение к тому, что mark.exe и так
+    # запускается явно через [Run] в конце .iss. В итоге получаются два запуска
+    # подряд: один от Restart Manager (без нормального рабочего каталога/окружения —
+    # он тут же схлопывается, отсюда и миллисекундная вспышка окна терминала), и один
+    # нормальный от [Run]. Без /RESTARTAPPLICATIONS перезапуском занимается только
+    # [Run] — лишнего запуска не возникает.
     log_path = os.path.join(tempfile.gettempdir(), "MarkSetup.log")
     installer_argv = [
         setup_path,
@@ -507,7 +537,6 @@ def update(args=None):
         "/SUPPRESSMSGBOXES",
         "/NORESTART",
         "/CLOSEAPPLICATIONS",
-        "/RESTARTAPPLICATIONS",
         f"/LOG={log_path}",
     ]
     print(f"{Fore.YELLOW}Installer log will be written to: {log_path}{Style.RESET_ALL}")
@@ -530,7 +559,7 @@ def update(args=None):
  
     print(f"{Fore.YELLOW}Installer launched. Exiting so it can replace this file...{Style.RESET_ALL}")
  
-    # Restart Manager (CloseApplications/RestartApplications в Inno Setup) не
+    # Restart Manager (CloseApplications в Inno Setup) не
     # умеет вежливо попросить закрыться голое консольное приложение без окна —
     # ему физически некуда слать WM_QUERYENDSESSION, поэтому он просто ждёт
     # свой внутренний таймаут (~30 сек) и откатывает всю установку. Поэтому
