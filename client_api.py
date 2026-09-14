@@ -29,11 +29,12 @@ def _api_base_url() -> str:
     return os.environ.get("API_BASE_URL", "http://127.0.0.1:8000").rstrip("/")
 
 
-def _post(path: str, payload: dict = None, timeout: int = 40):
+def _post(path: str, payload: dict = None, timeout: int = 40, silent: bool = False):
     try:
         resp = requests.post(f"{_api_base_url()}{path}", json=payload, timeout=timeout)
     except requests.RequestException as e:
-        print(f"{Fore.RED}Try use VPN or another network connection. Server is not responding.{e}{Style.RESET_ALL}")
+        if not silent:
+            print(f"{Fore.RED}Try use VPN or another network connection. Server is not responding.{e}{Style.RESET_ALL}")
         return None
     return resp
 
@@ -151,21 +152,26 @@ def send_message(hwid: str, to_name: str = None, text: str = None):
     else:
         print(f"{Fore.RED}Error occurred: {resp.json().get('detail', resp.text)}{Style.RESET_ALL}")
 
-def get_status(hwid: str):
+def get_status(hwid: str, silent: bool = False):
     """Чистое чтение своих данных из БД (restart/shutdown/message/d_level/
     tries_th) — без каких-либо изменений на сервере. Можно звать не только
     при старте (это делает start()), но и периодически во время работы,
     чтобы подхватывать restart/shutdown, выставленные уже после запуска.
- 
+
+    silent=True подавляет печать "Try use VPN..." при сетевой ошибке — нужно
+    для фонового опроса (watcher-поток), где единичный таймаут/обрыв — обычное
+    дело и сам по себе не повод пугать пользователя: следующий опрос через
+    несколько секунд обычно проходит нормально.
+
     Возвращает dict с полями, либо None при сетевой ошибке/невалидном токене
     (в последнем случае локальный токен уже стёрт — start() при следующем
     запуске переоформит его через /auth/claim или /auth/register)."""
- 
+
     token = _load_token()
     if not token:
         return None
- 
-    resp = _post("/auth/resume", {"hwid": hwid, "device_token": token})
+
+    resp = _post("/auth/resume", {"hwid": hwid, "device_token": token}, silent=silent)
     if resp is None:
         return None
  
@@ -181,12 +187,12 @@ def get_status(hwid: str):
  
     return None
 
-def update_data(hwid: str, ch="", val=None):
+def update_data(hwid: str, ch="", val=None, silent: bool = False):
     token = _load_token()
     if not token:
         return None
-    
-    resp = _post("/post/data", {"hwid": hwid, "ch": ch, "val": val})
+
+    resp = _post("/post/data", {"hwid": hwid, "ch": ch, "val": val}, silent=silent)
     if resp is None:
             return None
      

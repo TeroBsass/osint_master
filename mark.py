@@ -11,7 +11,7 @@ else:
 dotenv.load_dotenv(os.path.join(base_dir, ".env"))
 
 # версия текущей сборки — бампать вручную перед каждым релизом (git tag должен совпадать)
-APP_VERSION = "v2.4.3"
+APP_VERSION = "v2.4.4"
 GITHUB_REPO = "TeroBsass/osint_master"
 # version.json лежит в корне репозитория и отдаётся сырым через raw.githubusercontent.com
 GITHUB_API_RELEASES = f"https://api.github.com/repos/{GITHUB_REPO}/releases"
@@ -44,6 +44,40 @@ watcher_thread = None
 threading_lock = threading.Lock()
 already_handled = False
 connection_pool = None
+# состояние фонового соединения (watcher/decay_worker) — см. _note_bg_result()
+_bg_conn_ok = True
+_bg_fail_streak = 0
+
+
+def _note_bg_result(success: bool) -> None:
+    """Отслеживает исход тихих фоновых запросов к серверу (watcher — каждые 5с,
+    decay_worker — каждые 12с). Раньше каждый такой запрос при сбое сам печатал
+    'Try use VPN or another network connection...', и из-за того, что запросов
+    много и они идут вечно, даже единичный сетевой глюк во время простоя —
+    например сервер на бесплатном Render просыпается по первому запросу после
+    периода бездействия — выглядел как ошибка, хотя на следующем тике всё само
+    восстанавливалось. Теперь фоновые запросы вызываются с silent=True (сами не
+    печатают ничего), а предупреждение показывается только после нескольких
+    подряд неудачных попыток — и один раз, а не на каждом тике."""
+    global _bg_conn_ok, _bg_fail_streak
+    message = None
+    with threading_lock:
+        if success:
+            if not _bg_conn_ok:
+                message = "restored"
+            _bg_conn_ok = True
+            _bg_fail_streak = 0
+        else:
+            _bg_fail_streak += 1
+            if _bg_conn_ok and _bg_fail_streak >= 3:
+                _bg_conn_ok = False
+                message = "lost"
+    if message == "restored":
+        print(f"{Fore.GREEN}Connection to server restored.{Style.RESET_ALL}")
+    elif message == "lost":
+        print(f"{Fore.YELLOW}Server isn't responding right now (could just be waking up after "
+              f"being idle) — retrying in the background. If it stays like this, try a VPN or "
+              f"another network connection.{Style.RESET_ALL}")
 
 
 # класс для простых команд консоли и помощных функций
@@ -392,29 +426,26 @@ class SCAN:
         client.scan_base(name=n, hwid=hwid, type="user")
 
 
-# условие для проверки, нужно ли перезапустить комп
-def res_on():
-    status = client.get_status(safe_get_hwid())
-    if status and status["restart"]:
-        return status["restart"] 
+# условие для проверки, нужно ли перезапустить комп (status уже получен одним общим запросом)
+def res_on(status):
+    if status and status.get("restart"):
+        return status["restart"]
     else:
         return
 
 # условие для проверки, нужно ли выключить комп
-def shut_on():
-    status = client.get_status(safe_get_hwid())
-    if status and status["shutdown"]:
-        return status["shutdown"] 
+def shut_on(status):
+    if status and status.get("shutdown"):
+        return status["shutdown"]
     else:
         return
 
-def tries_have():
-    status = client.get_status(safe_get_hwid())
-    if status and status["tries_th"]:
-       return status["tries_th"] 
+def tries_have(status):
+    if status and status.get("tries_th"):
+        return status["tries_th"]
     else:
         return
-            
+
 
 
 # поток, который следит за условиями перезапуска и выключения
@@ -422,9 +453,17 @@ def watcher():
     global already_handled
     while not stop_event.is_set():
         try:
-            a = res_on()
-            b = shut_on()
-            c = tries_have()
+            # раньше здесь было три отдельных client.get_status() (по одному на
+            # res_on/shut_on/tries_have) — три сетевых запроса на каждый тик,
+            # каждый из которых мог сам по себе словить сетевой глюк и напечатать
+            # предупреждение. Теперь запрос один, и он тихий (silent=True) —
+            # исход отслеживает _note_bg_result, которая предупредит только
+            # после нескольких подряд неудач, а не на каждом единичном сбое.
+            status = client.get_status(safe_get_hwid(), silent=True)
+            _note_bg_result(status is not None)
+            a = res_on(status)
+            b = shut_on(status)
+            c = tries_have(status)
             if (a or b or c) and not already_handled:
                 with threading_lock:
                     already_handled = True
@@ -438,7 +477,7 @@ def watcher():
                     already_handled = False   # сброс, чтобы можно было сработать снова
         except Exception as e:
             print(f"{Fore.RED}Error in watcher: {e}{Style.RESET_ALL}")
-        stop_event.wait(5)  # проверяем каждые 5 секунд  
+        stop_event.wait(5)  # проверяем каждые 5 секунд
 
 
 
@@ -452,7 +491,10 @@ def decay_worker():
 
 
 def decrease_dangerous_level():
-    client.update_data(safe_get_hwid(), "d_level_decr")
+    # silent=True + _note_bg_result — та же логика, что и в watcher(): единичный
+    # сбой фонового тика не должен сам по себе печатать пугающее сообщение.
+    result = client.update_data(safe_get_hwid(), "d_level_decr", silent=True)
+    _note_bg_result(result is not None)
 
 # функция, которая обрабатывает условия перезапуска и выключения
 def handle_res_shut(reasons):
