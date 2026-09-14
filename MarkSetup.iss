@@ -17,50 +17,6 @@ begin
   Result := True;
 end;
 
-procedure CurStepChanged(CurStep: TSetupStep);
-var
-  EnvPath: string;
-  Lines, NewLines: TArrayOfString;
-  Found: Boolean;
-  I: Integer;
-  ApiLine: string;
-begin
-  if CurStep = ssPostInstall then
-  begin
-    ApiLine := 'API_BASE_URL=https://back-osint.onrender.com';
-    EnvPath := ExpandConstant('{app}\.env');
-
-    if not FileExists(EnvPath) then
-    begin
-      SaveStringToFile(EnvPath, ApiLine + #13#10, False);
-      Exit;
-    end;
-
-    LoadStringsFromFile(EnvPath, Lines);
-    SetArrayLength(NewLines, GetArrayLength(Lines));
-    Found := False;
-
-    for I := 0 to GetArrayLength(Lines) - 1 do
-    begin
-      if Pos('API_BASE_URL=', Lines[I]) = 1 then
-      begin
-        NewLines[I] := ApiLine;
-        Found := True;
-      end
-      else
-        NewLines[I] := Lines[I];
-    end;
-
-    if not Found then
-    begin
-      SetArrayLength(NewLines, GetArrayLength(NewLines) + 1);
-      NewLines[GetArrayLength(NewLines) - 1] := ApiLine;
-    end;
-
-    SaveStringsToFile(EnvPath, NewLines, False);
-  end;
-end;
-
 [Files]
 Source: "dist/mark.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: ".env"; DestDir: "{app}"; Flags: onlyifdoesntexist uninsneveruninstall
