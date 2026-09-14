@@ -1,5 +1,5 @@
 import tempfile, json, colorama, dotenv
-import hwid, getpass, os, time, sys, textwrap
+import hwid, getpass, os, time, sys, textwrap, re
 from art import text2art
 from colorama import Fore, Style
 import threading, subprocess, ctypes, urllib.request
@@ -11,7 +11,7 @@ else:
 dotenv.load_dotenv(os.path.join(base_dir, ".env"))
 
 # версия текущей сборки — бампать вручную перед каждым релизом (git tag должен совпадать)
-APP_VERSION = "v2.4.4"
+APP_VERSION = "v2.4.5"
 GITHUB_REPO = "TeroBsass/osint_master"
 # version.json лежит в корне репозитория и отдаётся сырым через raw.githubusercontent.com
 GITHUB_API_RELEASES = f"https://api.github.com/repos/{GITHUB_REPO}/releases"
@@ -176,27 +176,56 @@ class SIMPLE_COMMANDS:
         sys.stdout.write(">>>")
         sys.stdout.flush()  # возвращаемся в консоль после вывода сообщения
 
+    # Описание = что делает команда. Usage = один или несколько реальных примеров
+    # вызова. Все флаги указаны в [--flag=<value>] — квадратные скобки, потому что
+    # у каждой команды свои флаги на деле необязательны: если их не передать,
+    # программа просто спросит значение через input() в интерактивном режиме.
+    INFO_DICT = {
+        "help":   {"desc": "Shows the list of all available commands.",
+                   "usage": ["help"]},
+        "exit":   {"desc": "Exits the console.",
+                   "usage": ["exit"]},
+        "clear":  {"desc": "Clears the console screen.",
+                   "usage": ["clear", "cls"]},
+        "cls":    {"desc": "Clears the console screen. Same as 'clear'.",
+                   "usage": ["clear", "cls"]},
+        "info":   {"desc": "Shows this kind of detailed information about a specific command.",
+                   "usage": ["info [--com=<command>]"]},
+        "update": {"desc": "Checks GitHub for a newer release and installs it if one is found.",
+                   "usage": ["update"]},
+        "export": {"desc": "Exports your findings to a local .json file.",
+                   "usage": ["export [--file_name=<name>]"]},
+        "import": {"desc": "Imports data from a local .json file (created by 'export').",
+                   "usage": ["import [--path=<path>]"]},
+        "scan":   {"desc": "Scans users in the database and shows more information about them.",
+                   "usage": ["scan users", "scan more [--name=<name>]"]},
+        "chat":   {"desc": "Sends messages to other users and reads the messages sent to you.",
+                   "usage": ["chat send [--name=<name>] [--mes=<message>]",
+                             "chat my [--waiter=<seconds>] [--by_name=<name>]"]},
+        "osint":  {"desc": "Looks up a user's password by name. Note: this also reveals your own "
+                           "password to whoever runs it against you, to keep the process fair.",
+                   "usage": ["osint [--name=<name>] [--power=<1-5>]"]},
+        "dos":    {"desc": "Marks a user for shutdown or restart by their HWID.",
+                   "usage": ["dos [--hwid=<hwid>] [--act=<shutdown|restart>]"]},
+        "ghwid":  {"desc": "Looks up a user's HWID using their name and password.",
+                   "usage": ["ghwid [--name=<name>] [--pass=<password>]"]},
+    }
+
     def info(args=None):
         flags = SIMPLE_COMMANDS.parse_flags(args=args, known={"com"})
-        command_name = flags.get("com") or input("Enter the command name to get info: ")
-        info_dict = {
-            "help": f"{Fore.BLUE}Use 'help'{Style.RESET_ALL} to get info help.", 
-            "exit": f"{Fore.BLUE}Use 'exit'{Style.RESET_ALL} to exit the console.",
-            "clear": f"{Fore.BLUE}Use 'clear'{Style.RESET_ALL} to clear the console.",
-            "cls": f"{Fore.BLUE}Use 'cls'{Style.RESET_ALL} to clear the console.",
-            "info": f"{Fore.BLUE}Use 'info --com=<command>* '{Style.RESET_ALL}to show information about a specific command.",
-            "update": f"Update the tool to the latest version.\n{Fore.BLUE}Use 'update --path=<path>* '{Style.RESET_ALL}.",
-            "export": f"Export the findings to a file.\n{Fore.BLUE}Use export --file_name=<name>* {Style.RESET_ALL}",
-            "scan": f"Scan users and get more information\n{Fore.BLUE}.Use 'scan users* '{Style.RESET_ALL} to scan all users and {Fore.BLUE}'scan more* --name=<name>* '{Style.RESET_ALL} to get more information about a specific user.",
-            "chat": f"Send messages to other users and read your own messages.\n{Fore.BLUE}Use 'chat send* --name=<name>* --mes=<message>* '{Style.RESET_ALL} to send a message and {Fore.BLUE}'chat my* --waiter=<time>* --by_name=<name>* '{Style.RESET_ALL} to read your own messages.",
-            "osint": f"Tool to get password of user by name(but you open your own password, that makes it more easy to get it to another user for the osint process).{Fore.BLUE}Use 'osint --name=<name>* --power=<power>* '{Style.RESET_ALL} to start the osint process.",
-            "dos": f"Mark user for shutdown or restart by HWID.\n{Fore.BLUE}Use dos --hwid=<hwid>* --act=<act>* {Style.RESET_ALL}",
-            "ghwid": f"Get HWID of user by name and password.\n{Fore.BLUE}Use 'ghwid --name=<name>* --pass=<password>* '{Style.RESET_ALL} to get HWID of user by name and password.",
-        }
-        if command_name in info_dict:
-            print(f"{Fore.GREEN}{command_name}{Style.RESET_ALL}: {info_dict[command_name]}")
-        else:
-            print(f"{Fore.RED}Command not found.{Style.RESET_ALL}")
+        command_name = (flags.get("com") or input("Enter the command name to get info: ")).strip().lower()
+
+        entry = SIMPLE_COMMANDS.INFO_DICT.get(command_name)
+        if not entry:
+            known = ", ".join(sorted(SIMPLE_COMMANDS.INFO_DICT))
+            print(f"{Fore.RED}Unknown command: '{command_name}'.{Style.RESET_ALL}\n"
+                  f"{Fore.YELLOW}Known commands: {Style.RESET_ALL}{known}")
+            console_start()
+            return
+
+        body_lines = [f"{entry['desc']}", "", f"{Style.BRIGHT}Usage:{Style.RESET_ALL}"]
+        body_lines += [f"  {Fore.CYAN}{u}{Style.RESET_ALL}" for u in entry["usage"]]
+        SIMPLE_COMMANDS._print_boxed(command_name, "\n".join(body_lines), color=Fore.BLUE)
         console_start()
 
     def parse_flags(args, known=None):
@@ -235,25 +264,37 @@ class SIMPLE_COMMANDS:
         """Оборачивает номер версии в цвет + жирность, чтобы он выделялся в тексте."""
         return f"{Style.BRIGHT}{color}{v}{Style.RESET_ALL}"
 
+    _ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
+
+    def _visible_len(s: str) -> int:
+        """Длина строки без учёта ANSI-кодов цвета — для выравнивания рамки,
+        когда внутри неё есть цветной текст (например у 'info' по команде)."""
+        return len(SIMPLE_COMMANDS._ANSI_RE.sub("", s))
+
     def _print_boxed(title: str, text: str, color: str = Fore.CYAN, width: int = 72) -> None:
-        """Печатает текст (например release notes) в рамке из псевдографики,
-        чтобы он не терялся среди обычных строк-сообщений."""
+        """Печатает текст (release notes, описание команды в 'info' и т.п.) в рамке
+        из псевдографики, чтобы он не терялся среди обычных строк-сообщений.
+        Строки уже могут содержать свой собственный цвет (ANSI-коды) — в этом
+        случае они не переносятся по ширине, а выравнивание рамки считается по
+        видимой длине, а не по количеству символов."""
         inner = width - 2
         lines = []
         for raw_line in (text or "").splitlines() or [""]:
             raw_line = raw_line.rstrip()
             if not raw_line:
                 lines.append("")
-                continue
-            lines.extend(textwrap.wrap(raw_line, inner) or [""])
+            elif SIMPLE_COMMANDS._ANSI_RE.search(raw_line):
+                lines.append(raw_line)
+            else:
+                lines.extend(textwrap.wrap(raw_line, inner) or [""])
 
         print(f"{color}┌{'─' * inner}┐{Style.RESET_ALL}")
         if title:
-            pad = max(inner - len(title) - 1, 0)
+            pad = max(inner - SIMPLE_COMMANDS._visible_len(title) - 1, 0)
             print(f"{color}│ {Style.BRIGHT}{title}{Style.NORMAL}{Fore.RESET}{' ' * pad}{color}│{Style.RESET_ALL}")
             print(f"{color}├{'─' * inner}┤{Style.RESET_ALL}")
         for line in lines:
-            pad = max(inner - len(line) - 1, 0)
+            pad = max(inner - SIMPLE_COMMANDS._visible_len(line) - 1, 0)
             print(f"{color}│{Style.RESET_ALL} {line}{' ' * pad}{color}│{Style.RESET_ALL}")
         print(f"{color}└{'─' * inner}┘{Style.RESET_ALL}")
 
@@ -595,7 +636,7 @@ def update(args=None):
 
     ver_new = SIMPLE_COMMANDS._ver(remote_version, Fore.GREEN)
     ver_cur = SIMPLE_COMMANDS._ver(APP_VERSION, Fore.MAGENTA)
-    print(f"{Fore.YELLOW}New version available: {ver_new}{Fore.YELLOW} (you have {ver_cur}{Fore.YELLOW}){Style.RESET_ALL}")
+    print(f"{Fore.YELLOW}New version available: v{ver_new}{Fore.YELLOW} (you have {ver_cur}{Fore.YELLOW}){Style.RESET_ALL}")
     if release.get("body"):
         SIMPLE_COMMANDS._print_boxed(f"What's new in v{remote_version}", release["body"], color=Fore.GREEN)
 
