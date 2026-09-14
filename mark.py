@@ -1,6 +1,6 @@
 import tempfile, json, colorama, dotenv
 import traceback
-import hwid, getpass, os, time, sys
+import hwid, getpass, os, time, sys, textwrap
 from art import text2art
 from colorama import Fore, Style
 import threading, subprocess, ctypes, urllib.request
@@ -12,7 +12,7 @@ else:
 dotenv.load_dotenv(os.path.join(base_dir, ".env"))
 
 # версия текущей сборки — бампать вручную перед каждым релизом (git tag должен совпадать)
-APP_VERSION = "v2.4.1"
+APP_VERSION = "v2.4.2"
 GITHUB_REPO = "TeroBsass/osint_master"
 # version.json лежит в корне репозитория и отдаётся сырым через raw.githubusercontent.com
 GITHUB_API_RELEASES = f"https://api.github.com/repos/{GITHUB_REPO}/releases"
@@ -196,12 +196,79 @@ class SIMPLE_COMMANDS:
             n /= 1024
         return f"{n:.1f}TB"
 
-    def _download_with_progress(url: str, dest_path: str) -> None:
+    SPINNER_FRAMES = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
+
+    def _ver(v: str, color: str = Fore.CYAN) -> str:
+        """Оборачивает номер версии в цвет + жирность, чтобы он выделялся в тексте."""
+        return f"{Style.BRIGHT}{color}{v}{Style.RESET_ALL}"
+
+    def _print_boxed(title: str, text: str, color: str = Fore.CYAN, width: int = 72) -> None:
+        """Печатает текст (например release notes) в рамке из псевдографики,
+        чтобы он не терялся среди обычных строк-сообщений."""
+        inner = width - 2
+        lines = []
+        for raw_line in (text or "").splitlines() or [""]:
+            raw_line = raw_line.rstrip()
+            if not raw_line:
+                lines.append("")
+                continue
+            lines.extend(textwrap.wrap(raw_line, inner) or [""])
+
+        print(f"{color}┌{'─' * inner}┐{Style.RESET_ALL}")
+        if title:
+            pad = max(inner - len(title) - 1, 0)
+            print(f"{color}│ {Style.BRIGHT}{title}{Style.NORMAL}{Fore.RESET}{' ' * pad}{color}│{Style.RESET_ALL}")
+            print(f"{color}├{'─' * inner}┤{Style.RESET_ALL}")
+        for line in lines:
+            pad = max(inner - len(line) - 1, 0)
+            print(f"{color}│{Style.RESET_ALL} {line}{' ' * pad}{color}│{Style.RESET_ALL}")
+        print(f"{color}└{'─' * inner}┘{Style.RESET_ALL}")
+
+    def _spinner_run(message: str, func, *args, **kwargs):
+        """Крутит спиннер с сообщением, пока func(*args, **kwargs) выполняется в фоновом
+        потоке, и затирает строку по завершении — вместо того чтобы 'Checking...'
+        просто неподвижно висело на экране до конца операции. Возвращает результат
+        func или пробрасывает исключение, поднятое внутри неё."""
+        frames = SIMPLE_COMMANDS.SPINNER_FRAMES
+        done_event = threading.Event()
+        outcome = {}
+
+        def worker():
+            try:
+                outcome["value"] = func(*args, **kwargs)
+            except Exception as e:
+                outcome["error"] = e
+            finally:
+                done_event.set()
+
+        t = threading.Thread(target=worker, daemon=True)
+        t.start()
+
+        i = 0
+        while not done_event.is_set():
+            frame = frames[i % len(frames)]
+            sys.stdout.write(f"\r{Fore.CYAN}{frame}{Style.RESET_ALL} {message}   ")
+            sys.stdout.flush()
+            i += 1
+            done_event.wait(0.08)
+        t.join()
+
+        # затираем фиксированной шириной, а не len(message) — в message бывают ANSI-коды
+        # цвета (например у номеров версий), из-за которых len() сильно превышает
+        # видимую длину строки и может утащить курсор на следующую строку терминала
+        sys.stdout.write("\r" + " " * 100 + "\r")
+        sys.stdout.flush()
+
+        if "error" in outcome:
+            raise outcome["error"]
+        return outcome.get("value")
+
+    def _download_with_progress(url: str, dest_path: str, label: str = "Downloading") -> None:
         """Скачивает файл с анимированным прогресс-баром в консоли."""
         start_time = time.time()
         last_draw = [0.0]
         bar_width = 30
-        spinner = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
+        spinner = SIMPLE_COMMANDS.SPINNER_FRAMES
 
         def reporthook(block_num, block_size, total_size):
             now = time.time()
@@ -232,7 +299,7 @@ class SIMPLE_COMMANDS:
 
             size_str = f"{SIMPLE_COMMANDS._format_size(downloaded)}/{SIMPLE_COMMANDS._format_size(total_size)}" if total_size > 0 else SIMPLE_COMMANDS._format_size(downloaded)
 
-            line = (f"\r{Fore.CYAN}[{bar}]{Style.RESET_ALL} {percent_str}  "
+            line = (f"\r{Fore.YELLOW}{label}{Style.RESET_ALL} {Fore.CYAN}[{bar}]{Style.RESET_ALL} {percent_str}  "
                     f"{size_str}  {speed_str}  {eta_str}   ")
             sys.stdout.write(line)
             sys.stdout.flush()
@@ -419,15 +486,17 @@ def update(args=None):
     приложения — делает сам инсталлятор (CloseApplications / RestartApplications),
     поэтому никакой ручной возни с переименованием exe и батниками не нужно."""
  
-    print(f"{Fore.YELLOW}Checking for updates (current version: {APP_VERSION})...{Style.RESET_ALL}")
- 
-    try:
+    def _fetch_releases():
         req = urllib.request.Request(
             GITHUB_API_RELEASES,
             headers={"Accept": "application/vnd.github+json", "User-Agent": "update-checker"},
         )
         with urllib.request.urlopen(req, timeout=10) as resp:
-            all_releases = json.loads(resp.read().decode("utf-8"))
+            return json.loads(resp.read().decode("utf-8"))
+
+    check_label = f"Checking for updates (current version: {SIMPLE_COMMANDS._ver(APP_VERSION, Fore.MAGENTA)})"
+    try:
+        all_releases = SIMPLE_COMMANDS._spinner_run(check_label, _fetch_releases)
     except Exception as e:
         print(f"{Fore.RED}Could not check for updates: {e}{Style.RESET_ALL}")
         console_start()
@@ -437,7 +506,7 @@ def update(args=None):
     # МАКСИМАЛЬНЫМ номером версии по тегу — а не тот, что GitHub считает
     # "latest" (это разные вещи, см. пояснение в шапке файла).
     candidates = []
-    print(f"{Fore.YELLOW}--- Releases seen from GitHub API ---{Style.RESET_ALL}")
+    # print(f"{Fore.YELLOW}--- Releases seen from GitHub API ---{Style.RESET_ALL}")
     for r in all_releases:
         tag = r.get("tag_name", "")
         flags = []
@@ -447,18 +516,18 @@ def update(args=None):
             flags.append("PRERELEASE")
  
         if flags:
-            print(f"  {tag!r} — SKIPPED ({', '.join(flags)})")
+            # print(f"  {tag!r} — SKIPPED ({', '.join(flags)})")
             continue
  
         try:
             parsed = SIMPLE_COMMANDS._parse_version(tag)
         except (ValueError, AttributeError) as e:
-            print(f"  {tag!r} — SKIPPED (couldn't parse as version: {e})")
+            # print(f"  {tag!r} — SKIPPED (couldn't parse as version: {e})")
             continue  # тег не похож на версию (X.Y.Z) — пропускаем
  
-        print(f"  {tag!r} — OK, parsed as {parsed}")
+        # print(f"  {tag!r} — OK, parsed as {parsed}")
         candidates.append((parsed, r))
-    print(f"{Fore.YELLOW}--------------------------------------{Style.RESET_ALL}")
+    # print(f"{Fore.YELLOW}--------------------------------------{Style.RESET_ALL}")
  
     if not candidates:
         print(f"{Fore.RED}No valid published releases found on GitHub.{Style.RESET_ALL}")
@@ -478,14 +547,17 @@ def update(args=None):
         return
  
     if SIMPLE_COMMANDS._parse_version(remote_version) <= SIMPLE_COMMANDS._parse_version(APP_VERSION):
-        print(f"{Fore.GREEN}You are already on the latest version ({APP_VERSION}).{Style.RESET_ALL}")
+        cur = SIMPLE_COMMANDS._ver(APP_VERSION, Fore.MAGENTA)
+        print(f"{Fore.GREEN}You are already on the latest version ({cur}{Fore.GREEN}).{Style.RESET_ALL}")
         console_start()
         return
- 
-    print(f"{Fore.YELLOW}New version available: {remote_version} (you have {APP_VERSION}){Style.RESET_ALL}")
+
+    ver_new = SIMPLE_COMMANDS._ver(remote_version, Fore.GREEN)
+    ver_cur = SIMPLE_COMMANDS._ver(APP_VERSION, Fore.MAGENTA)
+    print(f"{Fore.YELLOW}New version available: {ver_new}{Fore.YELLOW} (you have {ver_cur}{Fore.YELLOW}){Style.RESET_ALL}")
     if release.get("body"):
-        print(release["body"])
- 
+        SIMPLE_COMMANDS._print_boxed(f"What's new in v{remote_version}", release["body"], color=Fore.GREEN)
+
     if not getattr(sys, "frozen", False):
         print(f"{Fore.YELLOW}Running from source — just 'git pull' instead of self-updating.{Style.RESET_ALL}")
         console_start()
@@ -505,14 +577,16 @@ def update(args=None):
             pass
  
     try:
-        print(f"{Fore.YELLOW}Downloading installer...{Style.RESET_ALL}")
-        urllib.request.urlretrieve(setup_asset["browser_download_url"], setup_path)
+        SIMPLE_COMMANDS._download_with_progress(
+            setup_asset["browser_download_url"], setup_path, label="Downloading installer"
+        )
     except Exception as e:
         print(f"{Fore.RED}Download failed: {e}{Style.RESET_ALL}")
         console_start()
         return
- 
-    print(f"{Fore.GREEN}Updating to {remote_version}. Launching installer...{Style.RESET_ALL}")
+    print(f"{Fore.GREEN}✓ Download complete.{Style.RESET_ALL}")
+
+    print(f"{Fore.GREEN}Updating to {ver_new}{Fore.GREEN}.{Style.RESET_ALL}")
  
     # Инсталлятор теперь ставит в {localappdata} и собран с PrivilegesRequired=lowest
     # — администратор ему не нужен, поэтому запускаем обычным subprocess.Popen,
@@ -544,20 +618,23 @@ def update(args=None):
     CREATE_NEW_PROCESS_GROUP = 0x00000200
     DETACHED_PROCESS = 0x00000008
     CREATE_BREAKAWAY_FROM_JOB = 0x01000000
- 
-    try:
+
+    def _launch_installer():
         subprocess.Popen(
             installer_argv,
             cwd=tempfile.gettempdir(),
             creationflags=CREATE_NEW_PROCESS_GROUP | DETACHED_PROCESS | CREATE_BREAKAWAY_FROM_JOB,
             close_fds=True,
         )
+
+    try:
+        SIMPLE_COMMANDS._spinner_run("Launching installer", _launch_installer)
     except OSError as e:
         print(f"{Fore.RED}Failed to launch installer: {e}. Update aborted.{Style.RESET_ALL}")
         console_start()
         return
- 
-    print(f"{Fore.YELLOW}Installer launched. Exiting so it can replace this file...{Style.RESET_ALL}")
+
+    print(f"{Fore.GREEN}✓ Installer launched.{Style.RESET_ALL} {Fore.YELLOW}Exiting so it can replace this file...{Style.RESET_ALL}")
  
     # Restart Manager (CloseApplications в Inno Setup) не
     # умеет вежливо попросить закрыться голое консольное приложение без окна —
@@ -735,19 +812,6 @@ def start():
 
 # главная точка входа в программу
 if __name__ == "__main__":
-    if getattr(sys, "frozen", False):
-        _LOG_PATH = os.path.join(os.path.dirname(sys.executable), "startup.log")
-    else:
-        _LOG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "startup.log")
-
-    try:
-        with open(_LOG_PATH, "a", encoding="utf-8") as _f:
-            # таймстемп нужен, чтобы по этому логу можно было понять, ЗАПУСКАЛСЯ
-            # ли вообще mark.exe после установки апдейта (а не только "когда-то
-            # раньше") — без времени все строки неотличимы друг от друга.
-            _f.write(f"=== process started {time.strftime('%Y-%m-%d %H:%M:%S')} ===\n")
-    except Exception:
-        pass
     colorama.init(convert=True, strip=False)
     if getattr(sys, "frozen", False):
         # чистим хвост от предыдущего update() — старый процесс уже закрылся,
@@ -767,11 +831,6 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         SIMPLE_COMMANDS.graceful_exit()
     except Exception:
-        try:
-            with open(_LOG_PATH, "a", encoding="utf-8") as _f:
-                _f.write(traceback.format_exc() + "\n")
-        except Exception:
-            pass
         input("Press Enter to exit...")
 
     
