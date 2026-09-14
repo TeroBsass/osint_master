@@ -2,50 +2,19 @@
 AppId={{8A2F06F8-FC4F-4110-A43E-2DF88351943C}
 AppName=Osint Master
 AppVersion={#MyAppVersion}
-DefaultDirName={localappdata}\Osint Master
+DefaultDirName={autopf}\Osint Master
 CloseApplications=no
-PrivilegesRequired=lowest
+PrivilegesRequired=admin
 OutputBaseFilename=MarkSetup
 
 [Code]
-const
-  MaxLockAttempts = 60; // 60 * 500ms = 30 секунд
-
-function IsFileLocked(FileName: string): Boolean;
-var
-  TempName: string;
+function InitializeSetup(): Boolean;
 begin
+  // небольшой запас по времени, чтобы наш процесс (который сам себя закрывает
+  // сразу после запуска этого инсталлятора) гарантированно успел отпустить
+  // файл mark.exe до того, как Setup попробует его перезаписать
+  Sleep(1500);
   Result := True;
-  if not FileExists(FileName) then
-  begin
-    Result := False;
-    Exit;
-  end;
-  TempName := FileName + '.lock_check';
-  if RenameFile(FileName, TempName) then
-  begin
-    RenameFile(TempName, FileName);
-    Result := False;
-  end;
-end;
-
-function PrepareToInstall(var NeedsRestart: Boolean): String;
-var
-  ExePath: string;
-  Attempts: Integer;
-begin
-  Result := '';
-  ExePath := ExpandConstant('{app}\mark.exe');
-  Attempts := 0;
-  while IsFileLocked(ExePath) and (Attempts < MaxLockAttempts) do
-  begin
-    Sleep(500);
-    Attempts := Attempts + 1;
-  end;
-
-  if IsFileLocked(ExePath) then
-    Result := 'Не удалось завершить работу Osint Master (файл mark.exe занят). ' +
-               'Закройте приложение вручную и запустите установку снова.';
 end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
@@ -89,16 +58,12 @@ begin
     end;
 
     SaveStringsToFile(EnvPath, NewLines, False);
-    Sleep(3000);
   end;
 end;
 
-[Icons]
-Name: "{autodesktop}\Osint Master"; Filename: "{app}\mark.exe"
-
 [Files]
-Source: "dist\mark.exe"; DestDir: "{app}"; Flags: ignoreversion restartreplace
+Source: "dist/mark.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: ".env"; DestDir: "{app}"; Flags: onlyifdoesntexist uninsneveruninstall
 
 [Run]
-Filename: "{app}\mark.exe"; WorkingDir: "{app}"; Flags: nowait runasoriginaluser
+Filename: "{app}\mark.exe"; Flags: nowait runasoriginaluser; Description: "Run Osint Master";
