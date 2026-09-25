@@ -18,6 +18,7 @@ device_token хранится не рядом с exe (папка установ�
 import json
 import os
 import getpass
+import random
 
 import requests
 from mark import SIMPLE_COMMANDS as sc
@@ -133,22 +134,33 @@ def start(hwid: str, console_start):
     return False
 
 
-def send_message(hwid: str, to_name: str = None, text: str = None):
+def send_message(hwid: str, to_name: str = None, text: str = None, names:list = None, in_chat:bool = False):
     token = _load_token()
     if not token:
         print(f"{Fore.RED}Not logged in.{Style.RESET_ALL}")
         return
-    to_name = input("Enter receiver name: ") if not to_name else to_name
-    text = input(f"you>>{to_name}>> ") if not text else text
+    if not to_name and not names:
+        to_name = input("Enter receiver name: ")
+    elif not to_name and names:
+        to_name = None
+    else:
+        to_name = to_name
+    text = input(f"you>>{to_name if to_name and not names else 'users'}>> ") if not text else text
 
-    resp = _post("/chat/send", {"hwid": hwid, "device_token": token, "to_name": to_name, "text": text})
+    resp = _post("/chat/send", {"hwid": hwid, "device_token": token, "to_name": to_name, "text": text, "to_names": names})
     if resp is None:
         return
 
     if resp.status_code == 200:
-        print(f"{Fore.GREEN}Message sent successfully.{Style.RESET_ALL}")
+        data = resp.json()
+        missing = data.get("not_found")
+        if missing:
+            print(f"{Fore.YELLOW}Message sent, but these names are not in the database: {', '.join(missing)}{Style.RESET_ALL}")
+        else:
+            if not in_chat:
+                print(f"{Fore.GREEN}Message sent successfully.{Style.RESET_ALL}")
     elif resp.status_code == 404:
-        print(f"{Fore.RED}User not found.{Style.RESET_ALL}")
+        print(f"{Fore.RED}{resp.json().get('detail', 'User not found.')}{Style.RESET_ALL}")
     else:
         print(f"{Fore.RED}Error occurred: {resp.json().get('detail', resp.text)}{Style.RESET_ALL}")
 
@@ -186,13 +198,164 @@ def get_status(hwid: str, silent: bool = False):
             pass
  
     return None
+def make_group_(name, members, hwid):
+    token = _load_token()
+    if not token:
+        return None
+    id_g = random.randint(100000000, 999999999)
+    resp = _post("/chat/make", {"name": name, "members": members, "id_g": id_g, "hwid": hwid, "token": token})
+    if resp is None:
+        print(f"{Fore.RED}Something went wrong!!!{Style.RESET_ALL}")
+        return
+    print(f"{Fore.GREEN}The group {Style.RESET_ALL}{Fore.BLUE}{name}{Style.RESET_ALL}{Fore.GREEN} was successfuly created!!!\nYour group's id = {Style.RESET_ALL}{Fore.BLUE}{id_g}{Style.RESET_ALL}")
 
-def update_data(hwid: str, ch="", val=None, silent: bool = False):
+def delete_group_(name, id, hwid):
+    token = _load_token()
+    if not token:
+        return None
+    resp = _post("/chat/delete", {"name": name, "id": id, "hwid": hwid, "token": token})
+    if resp is None:
+        print(f"{Fore.RED}Something went wrong!!!{Style.RESET_ALL}")
+        return
+    if resp.status_code == 401:
+        print(f"{Fore.RED}{resp.json().get('detail', 'Error')}{Style.RESET_ALL}")
+        return
+    if resp.status_code == 404:
+        print(f"{Fore.RED}{resp.json().get('detail', 'Error')}{Style.RESET_ALL}")
+        return
+    if resp.status_code == 403:
+        print(f"{Fore.RED}{resp.json().get('detail', 'Error')}{Style.RESET_ALL}")
+        return
+    print(f"{Fore.GREEN}The group {Style.RESET_ALL}{Fore.BLUE}{name}{Style.RESET_ALL}{Fore.GREEN} has been deleting!!!{Style.RESET_ALL}")
+
+def get_gid_(hwid, name):
     token = _load_token()
     if not token:
         return None
 
-    resp = _post("/post/data", {"hwid": hwid, "ch": ch, "val": val}, silent=silent)
+    resp = _post("/chat/gid", {"hwid": hwid, "token": token, "name": name})
+    if resp is None:
+        print(f"{Fore.RED}Something went wrong!!!{Style.RESET_ALL}")
+        return
+    if resp.status_code == 404:
+        print(f"{Fore.RED}{resp.json().get('detail', 'Error')}{Style.RESET_ALL}")
+        return
+    if resp.status_code == 401:
+        print(f"{Fore.RED}{resp.json().get('detail', 'Error')}{Style.RESET_ALL}")
+        return
+    id = resp.json()
+    print(f"{Fore.GREEN}Id of group {Fore.BLUE}{name}{Fore.GREEN} - {Fore.BLUE}{id}{Style.RESET_ALL}")
+
+
+def pm_checker(name, hwid, check):
+    token = _load_token()
+    if not token:
+        return None
+    
+    resp = _post("/chat/pm", {"hwid": hwid, "name": name, "check": check})
+    if resp is None:
+        return False
+    mes = resp.json()
+    if mes:
+        return mes
+    else:
+        return False if check else None
+
+def not_read(hwid, identifier, type):
+    token = _load_token()
+    if not token:
+        return None
+
+    payload = {"hwid": hwid, "token": token, "type": type}
+    if type == "pm":
+        payload["to_name"] = identifier
+    else:
+        payload["id"] = identifier
+
+    resp = _post("/chat/nr", payload)
+    if resp is None:
+        print(f"{Fore.RED}Something went wrong!!!{Style.RESET_ALL}")
+        return
+
+    if resp.status_code != 200:
+        print(f"{Fore.RED}{resp.json().get('detail', 'Error')}{Style.RESET_ALL}")
+        return
+
+    entries = resp.json()
+    if not entries:
+        return
+
+    for n, t in entries:
+        print(f"{Fore.BLUE}{n}{Style.RESET_ALL}>>{t}")
+
+def add_member(name: str, hwid: str, id: int):
+    token = _load_token()
+    if not token:
+        return None
+
+    resp = _post("/chat/group/add", {"hwid": hwid, "token": token, "name": name, "id": id})
+    if resp is None:
+        return None
+    if resp.status_code != 200:
+        print(f"{Fore.RED}{resp.json().get('detail', 'Error')}{Style.RESET_ALL}")
+        return
+    print(f"{Fore.BLUE}{name}{Style.RESET_ALL} added into group with id: {Fore.BLUE}{id}{Style.RESET_ALL}")
+
+def del_member(name: str, hwid: str, id: int):
+    token = _load_token()
+    if not token:
+        return None
+
+    resp = _post("/chat/group/del", {"hwid": hwid, "token": token, "name": name, "id": id})
+    if resp is None:
+        return None
+    if resp.status_code != 200:
+        print(f"{Fore.RED}{resp.json().get('detail', 'Error')}{Style.RESET_ALL}")
+        return
+    print(f"{Fore.BLUE}{name}{Style.RESET_ALL} deleted from group with id: {Fore.BLUE}{id}{Style.RESET_ALL}")
+
+def get_name(hwid: str):
+    token = _load_token()
+    if not token:
+        return None
+
+    resp = _post("/get/name", {"hwid": hwid, "device_token": token})
+    if resp is None:
+        return None
+    
+    return resp.json()
+
+def send_group_mes(hwid, id, text):
+    token = _load_token()
+    if not token:
+        return None
+
+    resp = _post("/chat/group/send", {"hwid": hwid, "id": id, "text": text, "token": token})
+    if resp is None:
+        return
+    return True
+
+def check_group_mes(hwid, id, check):
+    token = _load_token()
+    if not token:
+        return None
+
+    resp = _post("/chat/group/check", {"hwid": hwid, "id": id, "check": check, "token": token})
+    if resp is None:
+        return
+    mes = resp.json()
+    if mes:
+        return mes
+    else:
+        return None
+    
+
+def update_data(hwid: str, ch="", val=None, silent: bool = False, table:str = "users"):
+    token = _load_token()
+    if not token:
+        return None
+
+    resp = _post("/post/data", {"hwid": hwid, "ch": ch, "val": val, "table": table, "token": token}, silent=silent)
     if resp is None:
             return None
      
@@ -215,7 +378,7 @@ def export_import(hwid:str, type:str, file_name:str=None, data:dict=None):
         return None
     if type=="export":
         resp = _post("/user/export", {"hwid": hwid})
-        if not resp:
+        if resp is None:
             return None
         dict_data = resp.json()
         if dict_data:
@@ -226,7 +389,7 @@ def export_import(hwid:str, type:str, file_name:str=None, data:dict=None):
             print(f"{Fore.RED}Something went wrog while exporting!!!{Style.RESET_ALL}")
     elif type=="import":
         resp = _post("/user/import", {"hwid": hwid, "data": data})
-        if not resp:
+        if resp is None:
             return None
          
         print(f"{Fore.GREEN}Importing is done!!!{Style.RESET_ALL}")
@@ -238,7 +401,7 @@ def scan_base(name: str = None, hwid: str=None, type:str=None):
         return None
     if type == "user":
         resp = _post("/db/user", {"hwid": hwid, "name": name})
-        if not resp:
+        if resp is None:
             return None
         res, dict_data = resp.json()
         if res:
@@ -255,7 +418,7 @@ def scan_base(name: str = None, hwid: str=None, type:str=None):
             print(f"{Fore.RED}No users found for the given criteria.{Style.RESET_ALL}")
     elif type=="all":
         resp = _post("/db/all")
-        if not resp:
+        if resp is None:
             return None
         res = resp.json()
         if res:
@@ -270,7 +433,7 @@ def get_hwid_by_pass(hwid:str, name:str, password:str):
         print(f"{Fore.RED}Not logged in.{Style.RESET_ALL}")
         return None
     resp = _post("/user/hack", {"hwid": hwid, "name": name, "password": password})
-    if not resp:
+    if resp is None:
         return None
     if resp.status_code == 401:
         print(f"{Fore.RED}Invalid password for user {name}.{Style.RESET_ALL}")
@@ -287,7 +450,7 @@ def dos_(hwid:str, act:str):
         print(f"{Fore.RED}Not logged in.{Style.RESET_ALL}")
         return None
     resp = _post("/user/dos", {"hwid": hwid})
-    if not resp:
+    if resp is None:
         return None
     if resp.status_code == 402:
         print(f"{Fore.RED}No user found with HWID: {hwid}{Style.RESET_ALL}")

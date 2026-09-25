@@ -1,8 +1,13 @@
 import tempfile, json, colorama, dotenv
-import hwid, getpass, os, time, sys, textwrap, re
+import hwid, getpass, os, time, sys, textwrap, re, shlex
 from art import text2art
 from colorama import Fore, Style
 import threading, subprocess, ctypes, urllib.request
+from prompt_toolkit import PromptSession
+from prompt_toolkit.patch_stdout import patch_stdout
+from prompt_toolkit import print_formatted_text
+from prompt_toolkit.formatted_text import ANSI
+
 if getattr(sys, "frozen", False):
     base_dir = os.path.dirname(sys.executable)
 else:
@@ -11,7 +16,7 @@ else:
 dotenv.load_dotenv(os.path.join(base_dir, ".env"))
 
 # версия текущей сборки — бампать вручную перед каждым релизом (git tag должен совпадать)
-APP_VERSION = "v2.4.6"
+APP_VERSION = "v2.4.7"
 GITHUB_REPO = "TeroBsass/osint_master"
 # version.json лежит в корне репозитория и отдаётся сырым через raw.githubusercontent.com
 GITHUB_API_RELEASES = f"https://api.github.com/repos/{GITHUB_REPO}/releases"
@@ -49,37 +54,6 @@ _bg_conn_ok = True
 _bg_fail_streak = 0
 
 
-def _note_bg_result(success: bool) -> None:
-    """Отслеживает исход тихих фоновых запросов к серверу (watcher — каждые 5с,
-    decay_worker — каждые 12с). Раньше каждый такой запрос при сбое сам печатал
-    'Try use VPN or another network connection...', и из-за того, что запросов
-    много и они идут вечно, даже единичный сетевой глюк во время простоя —
-    например сервер на бесплатном Render просыпается по первому запросу после
-    периода бездействия — выглядел как ошибка, хотя на следующем тике всё само
-    восстанавливалось. Теперь фоновые запросы вызываются с silent=True (сами не
-    печатают ничего), а предупреждение показывается только после нескольких
-    подряд неудачных попыток — и один раз, а не на каждом тике."""
-    global _bg_conn_ok, _bg_fail_streak
-    message = None
-    with threading_lock:
-        if success:
-            if not _bg_conn_ok:
-                message = "restored"
-            _bg_conn_ok = True
-            _bg_fail_streak = 0
-        else:
-            _bg_fail_streak += 1
-            if _bg_conn_ok and _bg_fail_streak >= 3:
-                _bg_conn_ok = False
-                message = "lost"
-    if message == "restored":
-        print(f"{Fore.GREEN}Connection to server restored.{Style.RESET_ALL}")
-    elif message == "lost":
-        print(f"{Fore.YELLOW}Server isn't responding right now (could just be waking up after "
-              f"being idle) — retrying in the background. If it stays like this, try a VPN or "
-              f"another network connection.{Style.RESET_ALL}")
-
-
 # класс для простых команд консоли и помощных функций
 class SIMPLE_COMMANDS:
     def help_command(args=None):
@@ -87,7 +61,7 @@ class SIMPLE_COMMANDS:
             print(f"{Fore.RED}The 'help' command does not take any arguments.{Style.RESET_ALL}")
             console_start()
             return
-        print(f"{Fore.RED}Available commands:{Style.RESET_ALL}")
+        print(f"{Fore.YELLOW}Available commands:{Style.RESET_ALL}")
         print(f"{Fore.YELLOW}help{Style.RESET_ALL} - Show this help message")
         print(f"{Fore.YELLOW}exit{Style.RESET_ALL} - Exit the console")
         print(f"{Fore.YELLOW}clear(or cls){Style.RESET_ALL} - Clear the console")
@@ -101,6 +75,43 @@ class SIMPLE_COMMANDS:
         print(f"{Fore.YELLOW}dos{Style.RESET_ALL} - Mark user for shutdown or restart by HWID")
         print(f"{Fore.YELLOW}ghwid{Style.RESET_ALL} - Get HWID of user by name and password")
         console_start()
+
+    def _note_bg_result(success: bool) -> None:
+        """Отслеживает исход тихих фоновых запросов к серверу (watcher — каждые 5с,
+        decay_worker — каждые 12с). Раньше каждый такой запрос при сбое сам печатал
+        'Try use VPN or another network connection...', и из-за того, что запросов
+        много и они идут вечно, даже единичный сетевой глюк во время простоя —
+        например сервер на бесплатном Render просыпается по первому запросу после
+        периода бездействия — выглядел как ошибка, хотя на следующем тике всё само
+        восстанавливалось. Теперь фоновые запросы вызываются с silent=True (сами не
+        печатают ничего), а предупреждение показывается только после нескольких
+        подряд неудачных попыток — и один раз, а не на каждом тике."""
+        global _bg_conn_ok, _bg_fail_streak
+        message = None
+        with threading_lock:
+            if success:
+                if not _bg_conn_ok:
+                    message = "restored"
+                _bg_conn_ok = True
+                _bg_fail_streak = 0
+            else:
+                _bg_fail_streak += 1
+                if _bg_conn_ok and _bg_fail_streak >= 3:
+                    _bg_conn_ok = False
+                    message = "lost"
+        if message == "restored":
+            print(f"{Fore.GREEN}Connection to server restored.{Style.RESET_ALL}")
+        elif message == "lost":
+            print(f"{Fore.YELLOW}Server isn't responding right now (could just be waking up after "
+                f"being idle) — retrying in the background. If it stays like this, try a VPN or "
+                f"another network connection.{Style.RESET_ALL}")
+
+    
+    def cprint(text: str):
+        """Замена print() для использования внутри patch_stdout() — корректно
+        проявляет цвета colorama (Fore/Style), которые сырой print() внутри
+        patch_stdout просто печатает как текст escape-кодов."""
+        print_formatted_text(ANSI(text))
 
 
     def clear(args=None):
@@ -143,9 +154,7 @@ class SIMPLE_COMMANDS:
 
         stop_event.set()
         if watcher_thread is not None:
-            watcher_thread.join(timeout=3)# ждём, пока поток реально закончит текущую итерацию
-        if decay_thread is not None:
-            decay_thread.join(timeout=3)  
+            watcher_thread.join(timeout=3)# ждём, пока поток реально закончит текущую итерацию 
         try:
             connection_pool.closeall()
         except Exception:
@@ -235,9 +244,17 @@ class SIMPLE_COMMANDS:
         Если передан набор known - названия флагов, которых там нет, не отбрасываются
         (поведение остаётся прежним), просто перед этим выводится предупреждение,
         что такого аргумента не существует.
+        Значение, обёрнутое в (...), можно не брать в кавычки, даже если внутри
+        есть пробелы (например --names=(a, b, c)) - split_args режет такую
+        строку по пробелам на несколько токенов, поэтому здесь мы дособираем
+        их обратно вплоть до токена с закрывающей ')'.
         """
         parsed = {}
-        for a in (args or []):
+        args = list(args or [])
+        i = 0
+        while i < len(args):
+            a = args[i]
+            i += 1
             if not a.startswith("--"):
                 continue
             body = a[2:]  # убираем "--"
@@ -245,6 +262,13 @@ class SIMPLE_COMMANDS:
                 key, value = body.split("=", 1)
             else:
                 key, value = body, None
+            if value is not None and value.startswith("(") and not value.endswith(")"):
+                while i < len(args):
+                    value += " " + args[i]
+                    closed = args[i].endswith(")")
+                    i += 1
+                    if closed:
+                        break
             if known is not None and key not in known:
                 print(f"{Fore.RED}Unknown argument: --{key}{Style.RESET_ALL}")
             parsed[key] = value
@@ -387,10 +411,20 @@ import client_api as client
 class CHAT:
     @staticmethod
     def send_message(args=None):
-        flags = SIMPLE_COMMANDS.parse_flags(args, known={"name", "mes"})
+        flags = SIMPLE_COMMANDS.parse_flags(args, known={"name", "mes", "names"})
         name = flags.get("name") or None
         message = flags.get("mes") or None
-        client.send_message(safe_get_hwid(), name, message)
+        names = flags.get("names") or None
+        if names:
+            names = [n.strip() for n in names.replace("(", "").replace(")", "").split(",") if n.strip()]
+        own_name = client.get_name(safe_get_hwid())
+        if name == own_name:
+            SIMPLE_COMMANDS.cprint(f"{Fore.RED}You can't send messages for yourself!!!{Style.RESET_ALL}")
+            return
+        if own_name in names:
+            names.remove(own_name)
+            SIMPLE_COMMANDS.cprint(f"{Fore.RED}You can't send messages for youself!!!!{Style.RESET_ALL}")
+        client.send_message(safe_get_hwid(), name, message, names)
 
     @staticmethod
     def show_own_messages(args=None):
@@ -439,17 +473,188 @@ class CHAT:
         else:
             print(f"{Fore.YELLOW}No messages found for your account.{Style.RESET_ALL}")
 
+    CHAT_MODE = False
+    START_PM_SESSION = False
+    START_GROUP_SESSION = False
+    PM_NAME = None
+    GROUP_NAME = None
+    session = PromptSession(erase_when_done=True)
+
+    #the watcher of messages
+    def chat_watcher(stop_event):
+        while not stop_event.is_set():
+            try:
+                if CHAT.START_PM_SESSION:
+                    name = CHAT.PM_NAME
+                    condition = CHAT.pm_check(name)
+                    type = "a"
+                elif CHAT.START_GROUP_SESSION:
+                    name = CHAT.GROUP_NAME
+                    condition = CHAT.group_check(name)
+                    type = "b"
+                else:
+                    name = None
+                    condition = False
+                if condition:
+                    CHAT.handle_results(type, name)
+            except Exception as e:
+                SIMPLE_COMMANDS.cprint(f"{Fore.RED}Error in chat_worker: {e}{Style.RESET_ALL}")
+            stop_event.wait(1)
+
+    #the main loop of getting and sending user's messages
+    def loop(type:str):
+        name = CHAT.PM_NAME if type == "pm" else CHAT.GROUP_NAME
+        SIMPLE_COMMANDS.cprint(f"{Fore.BLUE}--- Chat with {name} opened. ---{Style.RESET_ALL}")
+        stop_event = threading.Event()
+        watcher_thread = threading.Thread(target=CHAT.chat_watcher, args=(stop_event,), daemon=True)
+        watcher_thread.start()
+
+        with patch_stdout():
+            try:
+                while True:
+                    text = CHAT.session.prompt(f"you>>{name}>> ")
+                    if not text:
+                        continue
+                    if text.strip().lower() in ("/exit", "/back"):
+                        break
+                    if type == "pm":
+                        ok = client.send_message(safe_get_hwid(), name, text, in_chat=True)
+                    else:
+                        ok = client.send_group_mes(safe_get_hwid(), name, text)
+
+                    if ok:
+                        SIMPLE_COMMANDS.cprint(f"{Fore.CYAN}you{Style.RESET_ALL}>>{text}")
+            except (KeyboardInterrupt, EOFError):
+                pass
+            finally:
+                stop_event.set()
+                watcher_thread.join(timeout=2)
+                if type == "pm":
+                    CHAT.START_PM_SESSION = False
+                    CHAT.PM_NAME = None
+                else:
+                    CHAT.START_GROUP_SESSION = False
+                    CHAT.GROUP_NAME = None
+                SIMPLE_COMMANDS.cprint(f"{Fore.BLUE}--- Chat with {name} closed. ---{Style.RESET_ALL}")    
+
+
+    def pm_check(name):
+        return client.pm_checker(name, safe_get_hwid(), check=True)
+    def group_check(name):
+        return client.check_group_mes(safe_get_hwid(), name, True)
+
+    def handle_results(type, name):
+        if type == "a":
+            mes = client.pm_checker(name, safe_get_hwid(), check=False)
+            if mes:
+                for text in mes:
+                    # if name == client.get_name(safe_get_hwid()):
+                    #     continue
+                    SIMPLE_COMMANDS.cprint(f"{Fore.BLUE}{name}{Style.RESET_ALL}>>{text}")
+        elif type == "b":
+            mes = client.check_group_mes(safe_get_hwid(), name, False)
+            if mes:
+                for text in mes:
+                    text = text.split("->", 1)
+                    if text[0] == client.get_name(safe_get_hwid()):
+                        continue
+                    SIMPLE_COMMANDS.cprint(f"{Fore.BLUE}{text[0]}{Style.RESET_ALL}>>{text[1]}")
+    @staticmethod
+    def switch_mode(args=None):
+        flags = SIMPLE_COMMANDS.parse_flags(args, known={"sw"})
+        mode = flags.get("sw") or input("On/Off: ")
+        if mode not in ("on", "off"):
+            print(f"{Fore.RED}--sw arg is invalid!!!(only on or off){Style.RESET_ALL}")
+        mode = True if mode.lower() == "on" else False
+        if CHAT.CHAT_MODE != mode:
+            CHAT.CHAT_MODE = mode
+        else:
+            print(F"{Fore.RED}Chat mode is already like that!!!{Style.RESET_ALL}")
+            return
+        if CHAT.CHAT_MODE:
+            SIMPLE_COMMANDS._print_boxed("CHAT MODE", f"{Fore.GREEN}● Enabled{Style.RESET_ALL} — incoming messages will now be shown live.", color=Fore.GREEN, width=60)
+        else:
+            SIMPLE_COMMANDS._print_boxed("CHAT MODE", f"{Fore.RED}○ Disabled{Style.RESET_ALL} — messages will no longer be shown live.", color=Fore.RED, width=60)
+
+    @staticmethod
+    def make_group(args=None):
+        flags = SIMPLE_COMMANDS.parse_flags(args, {"name", "members"})
+        name = flags.get("name") or input("What's the name of a group: ")
+        members = flags.get("members") or input("Add members into the group(like John, Ben): ")
+        members = [n.strip() for n in members.replace("(", "").replace(")", "").split(",") if n.strip()]
+        client.make_group_(name, members, safe_get_hwid())
+
+    @staticmethod
+    def del_group(args=None):
+        flags = SIMPLE_COMMANDS.parse_flags(args, {"name", "id"})
+        name = flags.get("name") or input("Enter group's name: ")
+        id = flags.get("id") or input("Enter group's id: ")
+        sure = input("Are you sure? (y/N): ")
+        if sure.lower() == "y":
+            client.delete_group_(name, id, safe_get_hwid())
+        elif sure.lower() == "n":
+            return
+        else:
+            print(f"{Fore.RED}Enter only 'y' or 'n' !!!{Style.RESET_ALL}")
+            return
+
+    @staticmethod
+    def get_group_id(args=None):
+        flags = SIMPLE_COMMANDS.parse_flags(args, {"name"})
+        name = flags.get("name") or input("Enter group's name: ")
+        client.get_gid_(safe_get_hwid(), name)
+
+
+    @staticmethod
+    def open_(args=None):
+        
+        if not CHAT.CHAT_MODE:
+            print(f"{Fore.RED}This func is not available ouside CHAT MODE!!!{Style.RESET_ALL}")
+            return 
+        flags = SIMPLE_COMMANDS.parse_flags(args, {"pm", "group"})
+        pm = flags.get("pm") or None
+        group = flags.get("group") or None
+        if pm and group:
+            print(f"{Fore.RED}You must choose something one!!!{Style.RESET_ALL}")
+            return
+        elif pm:
+            if pm == client.get_name(safe_get_hwid()):
+                SIMPLE_COMMANDS.cprint(f"{Fore.RED}You can't open chat with youself!!!!{Style.RESET_ALL}")
+                return
+            client.not_read(safe_get_hwid(), pm, "pm")
+            CHAT.PM_NAME, CHAT.START_PM_SESSION = pm, True
+            CHAT.loop(type="pm")
+        elif group:
+            client.not_read(safe_get_hwid(), group, "group")
+            CHAT.GROUP_NAME, CHAT.START_GROUP_SESSION = group, True
+            CHAT.loop(type="group")
+        else:
+            print(f"{Fore.RED}You must set args like --pm or --group!!!{Style.RESET_ALL}")
+            return
+    @staticmethod
+    def add_mem(args=None):
+        flags = SIMPLE_COMMANDS.parse_flags(args, {"name", "id"})
+        name = flags.get("name") or input("Enter name of user to add: ")
+        id = flags.get("id") or int(input("Enter id of the group: "))
+        client.add_member(name, safe_get_hwid(), id)
+
+    @staticmethod
+    def del_mem(args=None):
+        flags = SIMPLE_COMMANDS.parse_flags(args, {"name", "id"})
+        name = flags.get("name") or input("Enter name of user to add: ")
+        id = flags.get("id") or int(input("Enter id of the group: "))
+        client.del_member(name, safe_get_hwid(), id)
+        
 # класс для работы с DOS функциями
 class DOS:
     def shutdown_user(hwid):
-        client.update_data(safe_get_hwid(), "shutdown", "True")
+        client.update_data(hwid, "shutdown", "True")
         print(f"{Fore.GREEN}User with HWID {hwid} has been marked for shutdown.{Style.RESET_ALL}")
 
 
     def restart_user(hwid):
-        client.update_data(safe_get_hwid(), "restart", "True")
+        client.update_data(hwid, "restart", "True")
         print(f"{Fore.GREEN}User with HWID {hwid} has been marked for restart.{Style.RESET_ALL}")
-
 
 # класс для работы с SCAN функциями
 class SCAN:
@@ -501,7 +706,7 @@ def watcher():
             # исход отслеживает _note_bg_result, которая предупредит только
             # после нескольких подряд неудач, а не на каждом единичном сбое.
             status = client.get_status(safe_get_hwid(), silent=True)
-            _note_bg_result(status is not None)
+            SIMPLE_COMMANDS._note_bg_result(status is not None)
             a = res_on(status)
             b = shut_on(status)
             c = tries_have(status)
@@ -519,23 +724,6 @@ def watcher():
         except Exception as e:
             print(f"{Fore.RED}Error in watcher: {e}{Style.RESET_ALL}")
         stop_event.wait(5)  # проверяем каждые 5 секунд
-
-
-
-def decay_worker():
-    while not stop_event.is_set():
-        try:
-            decrease_dangerous_level()
-        except Exception as e:
-            print(f"{Fore.RED}Error in decay_worker: {e}{Style.RESET_ALL}")
-        stop_event.wait(12)
-
-
-def decrease_dangerous_level():
-    # silent=True + _note_bg_result — та же логика, что и в watcher(): единичный
-    # сбой фонового тика не должен сам по себе печатать пугающее сообщение.
-    result = client.update_data(safe_get_hwid(), "d_level_decr", silent=True)
-    _note_bg_result(result is not None)
 
 # функция, которая обрабатывает условия перезапуска и выключения
 def handle_res_shut(reasons):
@@ -727,6 +915,20 @@ def update(args=None):
     # проверять/копировать, и сам запускает mark.exe в конце через [Run],
     # так что RestartApplications ему для этого не нужен.
     sys.exit(0)
+def split_args(s):
+    """
+    Разбивает строку команды на токены по пробелам, но позволяет обернуть
+    значение флага в кавычки, чтобы оно могло содержать пробелы
+    (например --name="John Smith"). Обратный слеш не считается спецсимволом,
+    чтобы не ломать пути Windows вида C:\\Users\\....
+    """
+    lexer = shlex.shlex(s, posix=True)
+    lexer.whitespace_split = True
+    lexer.escape = ""
+    lexer.commenters = ""
+    return list(lexer)
+
+
 # функция для запуска консоли и обработки команд
 def console_start(args=None):
     commands = {
@@ -744,10 +946,13 @@ def console_start(args=None):
         "export": export,
         "import": importing,
         "": console_start
+    } if not CHAT.CHAT_MODE else {
+        "chat": chat,
+        "": console_start
     }
     command = input(">>>").strip()
     try:
-        cmd_s = command.split(maxsplit=3)
+        cmd_s = split_args(command)
         cmd = cmd_s[0]
         args = cmd_s[1:] if len(cmd_s) > 1 else None
         if cmd in commands:
@@ -764,6 +969,10 @@ def osint(args=None):
 
     name = flags.get("name") or input("Enter user's name: ")
     count_raw = flags.get("power")
+
+    if name == client.get_name(safe_get_hwid()):
+        SIMPLE_COMMANDS.cprint(f"{Fore.RED}You can't osint youself!!!{Style.RESET_ALL}")
+        console_start()
 
     if "power" in flags:
         try:
@@ -812,14 +1021,16 @@ def ghwid(args=None):
         return
     flags = SIMPLE_COMMANDS.parse_flags(args, known={"name", "pass"})
     name = flags.get("name") or input("Enter user's name: ")
+    if name == client.get_name(safe_get_hwid()):
+        SIMPLE_COMMANDS.cprint(f"{Fore.RED}You can't get pass of yourself!!!{Style.RESET_ALL}")
+        console_start()
     password = flags.get("pass") or getpass.getpass("Enter user's password: ")
     client.get_hwid_by_pass(hwid, name, password)
     console_start()
 
 # функция для работы с чатом
 def chat(args=None):
-    raw = input("What you want to do: ").strip() if args is None else " ".join(args)
-    parts = raw.split(maxsplit=2)  # команда, имя, сообщение
+    parts = split_args(input("What you want to do: ").strip()) if args is None else list(args)
     leng = len(parts)
     if not parts:
         console_start()
@@ -841,7 +1052,48 @@ def chat(args=None):
         else:
             argums = None
         CHAT.show_own_messages(argums)
-
+    elif act == "mode":
+        if leng > 1:
+            argums = parts[1:]
+        else:
+            argums = None
+        CHAT.switch_mode(argums)
+    elif act == "make":
+        if leng > 1:
+            argums = parts[1:]
+        else:
+            argums = None
+        CHAT.make_group(argums)
+    elif act == "delete":
+        if leng > 1:
+            argums = parts[1:]
+        else:
+            argums = None
+        CHAT.del_group(argums)
+    elif act == "gid":
+        if leng > 1:
+            argums = parts[1:]
+        else:
+            argums = None
+        CHAT.get_group_id(argums)
+    elif act == "open":
+        if leng > 1:
+            argums = parts[1:]
+        else:
+            argums = None
+        CHAT.open_(argums)
+    elif act == "add":
+        if leng > 1:
+            argums = parts[1:]
+        else:
+            argums = None
+        CHAT.add_mem(argums)  
+    elif act == "del":
+        if leng > 1:
+            argums = parts[1:]
+        else:
+            argums = None
+        CHAT.del_mem(argums)    
     console_start()
 
 
@@ -852,9 +1104,8 @@ def scan(args=None):
         "more": SCAN.more,
     }
     
-    raw = input("What you want to do: ").strip() if args is None else " ".join(args)
-    parts = raw.split(maxsplit=1)  # разделяем на команду и остальное
-    
+    parts = split_args(input("What you want to do: ").strip()) if args is None else list(args)
+
     if not parts:
         console_start()
         return
@@ -875,6 +1126,9 @@ def scan(args=None):
 def dos(args=None):
     flags = SIMPLE_COMMANDS.parse_flags(args, known={"hwid", "act"})
     hwid = flags.get("hwid") or input("Enter the HWID to search for: ") 
+    if hwid == safe_get_hwid():
+        SIMPLE_COMMANDS.cprint(f"{Fore.RED}You cant's dos youself!!!{Style.RESET_ALL}")
+        console_start()
     act = flags.get("act") or input("What you want to do with this user: ")
     client.dos_(hwid, act)
     console_start()
@@ -905,8 +1159,6 @@ if __name__ == "__main__":
     
     watcher_thread = threading.Thread(target=watcher, daemon=True)
     watcher_thread.start()
-    decay_thread = threading.Thread(target=decay_worker, daemon=True)
-    decay_thread.start()
     try:
         SIMPLE_COMMANDS.set_console_title("OSINT MASTER")
         start()
