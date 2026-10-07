@@ -1,4 +1,6 @@
 import tempfile, json, colorama, dotenv
+import traceback
+
 import hwid, getpass, os, time, sys, textwrap, re, shlex
 from art import text2art
 from colorama import Fore, Style
@@ -8,6 +10,7 @@ from prompt_toolkit import PromptSession
 from prompt_toolkit.patch_stdout import patch_stdout
 from prompt_toolkit import print_formatted_text
 from prompt_toolkit.formatted_text import ANSI
+import questionary
 
 if getattr(sys, "frozen", False):
     base_dir = os.path.dirname(sys.executable)
@@ -26,7 +29,7 @@ GITHUB_API_RELEASES = f"https://api.github.com/repos/{GITHUB_REPO}/releases"
 # защищенный вызов hwid.get_hwid() с обработкой ошибок
 def safe_get_hwid():
     try:
-        return hwid.get_hwid()
+        return str(hwid.get_hwid())
     except subprocess.CalledProcessError as e:
         if e.returncode == 3221225786:
             return None  # Ctrl+C — молча возвращаем None
@@ -55,7 +58,7 @@ _bg_conn_ok = True
 _bg_fail_streak = 0
 
 
-# класс для простых команд консоли и помощных функций
+# класс для простых команд консоли и помогающих функций
 class SIMPLE_COMMANDS:
     @staticmethod
     def help_command(args=None):
@@ -433,22 +436,24 @@ class CHAT:
         name = flags.get("name") or None
         message = flags.get("mes") or None
         names = flags.get("names") or None
+        own_name = client.get_name(hwid=str(safe_get_hwid()))
         if names:
             names = [n.strip() for n in names.replace("(", "").replace(")", "").split(",") if n.strip()]
-        own_name = client.get_name(hwid=safe_get_hwid())
+            if own_name in names:
+                names.remove(own_name)
+                SIMPLE_COMMANDS.cprint(f"{Fore.RED}You can't send messages for yourself!!!!{Style.RESET_ALL}")
+                return
         if name == own_name:
             SIMPLE_COMMANDS.cprint(f"{Fore.RED}You can't send messages for yourself!!!{Style.RESET_ALL}")
             return
-        if own_name in names:
-            names.remove(own_name)
-            SIMPLE_COMMANDS.cprint(f"{Fore.RED}You can't send messages for yourself!!!!{Style.RESET_ALL}")
-        client.send_message(safe_get_hwid(), name, message, names)
+
+        client.send_message(str(safe_get_hwid()), name, message, names)
 
     @staticmethod
     def show_own_messages(args=None):
         flags = SIMPLE_COMMANDS.parse_flags(args, known={"waiter", "by_name"})
 
-        waiter_raw = flags.get("waiter")
+        waiter_raw = flags.get("waiter") or None
         if "waiter" in flags:
             try:
                 amount = int(waiter_raw) if waiter_raw is not None else 1
@@ -463,11 +468,11 @@ class CHAT:
 
         name = flags.get("by_name") or None
 
-        hwid = safe_get_hwid()
-        if hwid is None:
+        hw = safe_get_hwid()
+        if hw is None:
             return False
 
-        raw = client.read_messages(hwid)
+        raw = client.read_messages(hw)
         string_undel = ""
         if raw:
             print(f"{Fore.GREEN}Your messages:{Style.RESET_ALL}")
@@ -487,7 +492,7 @@ class CHAT:
                     time.sleep(amount)
             print(f"{Fore.YELLOW}All messages displayed and read.{Style.RESET_ALL}")
             if name:
-                client.update_data(hwid, "message", string_undel)
+                client.update_data(hw, "message", string_undel)
             return None
         else:
             print(f"{Fore.YELLOW}No messages found for your account.{Style.RESET_ALL}")
@@ -524,9 +529,10 @@ class CHAT:
 
     #the main loop of getting and sending user's messages
     @staticmethod
-    def loop(type:str):
-        name = CHAT.PM_NAME if type == "pm" else CHAT.GROUP_NAME
+    def loop(type_:str):
+        name = CHAT.PM_NAME if type_ == "pm" else CHAT.GROUP_NAME
         SIMPLE_COMMANDS.cprint(f"{Fore.BLUE}--- Chat with {name} opened. ---{Style.RESET_ALL}")
+        client.not_read(str(safe_get_hwid()), name, type_)
         stop_event_2 = threading.Event()
         watcher_thread_ = threading.Thread(target=CHAT.chat_watcher, args=(stop_event,), daemon=True)
         watcher_thread_.start()
@@ -539,19 +545,18 @@ class CHAT:
                         continue
                     if text.strip().lower() in ("/exit", "/back"):
                         break
-                    if type == "pm":
-                        ok = client.send_message(safe_get_hwid(), name, text, in_chat=True)
+                    if type_ == "pm":
+                        client.send_message(hwid=str(safe_get_hwid()), to_name=name, text=text, in_chat=True)
                     else:
-                        ok = client.send_group_mes(safe_get_hwid(), name, text)
+                        client.send_group_mes(str(safe_get_hwid()), name, text)
 
-                    if ok:
-                        SIMPLE_COMMANDS.cprint(f"{Fore.CYAN}you{Style.RESET_ALL}>>{text}")
+                    SIMPLE_COMMANDS.cprint(f"{Fore.CYAN}you{Style.RESET_ALL}>>{text}")
             except (KeyboardInterrupt, EOFError):
                 pass
             finally:
                 stop_event_2.set()
                 watcher_thread_.join(timeout=2)
-                if type == "pm":
+                if type_ == "pm":
                     CHAT.START_PM_SESSION = False
                     CHAT.PM_NAME = None
                 else:
@@ -561,27 +566,27 @@ class CHAT:
 
     @staticmethod
     def pm_check(name):
-        return client.pm_checker(name, safe_get_hwid(), check=True)
+        return client.pm_checker(name, str(safe_get_hwid()), check=True)
 
     @staticmethod
     def group_check(name):
-        return client.check_group_mes(safe_get_hwid(), name, True)
+        return client.check_group_mes(str(safe_get_hwid()), name, True)
 
     @staticmethod
     def handle_results(type_2, name):
         if type_2 == "a":
-            mes = client.pm_checker(name, safe_get_hwid(), check=False)
+            mes = client.pm_checker(name, str(safe_get_hwid()), check=False)
             if mes:
                 for text in mes:
                     # if name == client.get_name(safe_get_hwid()):
                     #     continue
                     SIMPLE_COMMANDS.cprint(f"{Fore.BLUE}{name}{Style.RESET_ALL}>>{text}")
         elif type_2 == "b":
-            mes = client.check_group_mes(safe_get_hwid(), name, False)
+            mes = client.check_group_mes(str(safe_get_hwid()), name, False)
             if mes:
                 for text in mes:
                     text = text.split("->", 1)
-                    if text[0] == client.get_name(safe_get_hwid()):
+                    if text[0] == client.get_name(str(safe_get_hwid())):
                         continue
                     SIMPLE_COMMANDS.cprint(f"{Fore.BLUE}{text[0]}{Style.RESET_ALL}>>{text[1]}")
     @staticmethod
@@ -643,32 +648,52 @@ class CHAT:
             print(f"{Fore.RED}You must choose something one!!!{Style.RESET_ALL}")
             return
         elif pm:
-            if pm == client.get_name(safe_get_hwid()):
+            if pm == client.get_name(str(safe_get_hwid())):
                 SIMPLE_COMMANDS.cprint(f"{Fore.RED}You can't open chat with yourself!!!!{Style.RESET_ALL}")
                 return
-            client.not_read(safe_get_hwid(), pm, "pm")
             CHAT.PM_NAME, CHAT.START_PM_SESSION = pm, True
-            CHAT.loop(type="pm")
+            CHAT.loop(type_="pm")
         elif group:
-            client.not_read(safe_get_hwid(), group, "group")
             CHAT.GROUP_NAME, CHAT.START_GROUP_SESSION = group, True
-            CHAT.loop(type="group")
+            CHAT.loop(type_="group")
         else:
-            print(f"{Fore.RED}You must set args like --pm or --group!!!{Style.RESET_ALL}")
+            result = client.get_cs(str(safe_get_hwid()))
+            if result is None:
+                return
+            pms, gps, note_1, note_2 = result
+
+            choices = [questionary.Choice(f"👤 {n}", value=("pm", n)) for n in pms]
+            choices += [questionary.Choice(f"👥 {n}", value=("group", n)) for n in gps]
+
+            if not choices:
+                print(note_1 or note_2)
+                return
+
+            choice = questionary.select("Список чатов", choices=choices).ask()
+            if not choice:
+                return
+
+            kind, name = choice
+            if kind == "pm":
+                CHAT.PM_NAME, CHAT.START_PM_SESSION = name, True
+                CHAT.loop(type_="pm")
+            else:
+                CHAT.GROUP_NAME, CHAT.START_GROUP_SESSION = gps[name], True  # или gps[name], если нужен id
+                CHAT.loop(type_="group")
             return
     @staticmethod
     def add_mem(args=None):
         flags = SIMPLE_COMMANDS.parse_flags(args, {"name", "id"})
         name = flags.get("name") or input("Enter name of user to add: ")
         id = flags.get("id") or int(input("Enter id of the group: "))
-        client.add_member(name, safe_get_hwid(), id)
+        client.add_member(name, str(safe_get_hwid()), id)
 
     @staticmethod
     def del_mem(args=None):
         flags = SIMPLE_COMMANDS.parse_flags(args, {"name", "id"})
         name = flags.get("name") or input("Enter name of user to add: ")
         id = flags.get("id") or int(input("Enter id of the group: "))
-        client.del_member(name, safe_get_hwid(), id)
+        client.del_member(name, str(safe_get_hwid()), id)
         
 # класс для работы с DOS функциями
 class DOS:
@@ -686,7 +711,7 @@ class DOS:
 class SCAN:
     @staticmethod
     def scan_users():
-        client.scan_base(type="all")
+        client.scan_base(type_="all")
 
     @staticmethod
     def more(args=None):
@@ -695,7 +720,7 @@ class SCAN:
         hw = safe_get_hwid()
         if not hw:
             return
-        client.scan_base(name=n, hwid=hw, type="user")
+        client.scan_base(name=n, hwid=hw, type_="user")
 
 
 # условие для проверки, нужно ли перезапустить комп (status уже получен одним общим запросом)
@@ -731,7 +756,7 @@ def watcher():
             # предупреждение. Теперь запрос один, и он тихий (silent=True) —
             # исход отслеживает _note_bg_result, которая предупредит только
             # после нескольких подряд неудач, а не на каждом единичном сбое.
-            status = client.get_status(safe_get_hwid(), silent=True)
+            status = client.get_status(str(safe_get_hwid()), silent=True)
             SIMPLE_COMMANDS._note_bg_result(status is not None)
             a = res_on(status)
             b = shut_on(status)
@@ -754,7 +779,7 @@ def watcher():
 # функция, которая обрабатывает условия перезапуска и выключения
 def handle_res_shut(reasons):
     SIMPLE_COMMANDS.pretty_print(reasons)
-    hw = safe_get_hwid()
+    hw = str(safe_get_hwid())
     if not hwid:
         return
     if "a" in reasons and "b" in reasons:
@@ -885,7 +910,7 @@ def update(args=None):
     # и его убьёт вместе с нами Job Object PyInstaller-бандла, когда мы вызовем
     # sys.exit(0) чуть ниже (это тот самый баг с start.bat в начале переписки).
     # ВАЖНО: /RESTARTAPPLICATIONS сюда намеренно НЕ добавляем, хотя /CLOSEAPPLICATIONS
-    # есть. Если apдейт запущен из уже работающего mark.exe (а не так, что человек
+    # есть. Если обнова запущена из уже работающего mark.exe (а не так, что человек
     # вручную скачал инсталлятор с GitHub, когда приложение и не запущено), Restart
     # Manager запоминает закрытый им процесс и с /RESTARTAPPLICATIONS сам пытается
     # перезапустить его СВОИМИ средствами — в дополнение к тому, что mark.exe и так
@@ -992,7 +1017,7 @@ def osint(args=None):
     name = flags.get("name") or input("Enter user's name: ")
     count_raw = flags.get("power")
 
-    if name == client.get_name(safe_get_hwid()):
+    if name == client.get_name(str(safe_get_hwid())):
         SIMPLE_COMMANDS.cprint(f"{Fore.RED}You can't osint yourself!!!{Style.RESET_ALL}")
         console_start()
 
@@ -1016,7 +1041,7 @@ def osint(args=None):
 def export(args=None):
     flags = SIMPLE_COMMANDS.parse_flags(args, {"file_name"})
     file_name = flags.get("file_name") or "data"
-    client.export_import(safe_get_hwid(), "export", file_name)
+    client.export_import(str(safe_get_hwid()), "export", file_name)
 
     console_start()
     
@@ -1038,12 +1063,12 @@ def importing(args=None):
 
 # функция для получения HWID пользователя по имени и паролю
 def ghwid(args=None):
-    hw = safe_get_hwid()
-    if not hwid:
+    hw = str(safe_get_hwid())
+    if not hw:
         return
     flags = SIMPLE_COMMANDS.parse_flags(args, known={"name", "pass"})
     name = flags.get("name") or input("Enter user's name: ")
-    if name == client.get_name(safe_get_hwid()):
+    if name == client.get_name(hw):
         SIMPLE_COMMANDS.cprint(f"{Fore.RED}You can't get pass of yourself!!!{Style.RESET_ALL}")
         console_start()
     password = flags.get("pass") or getpass.getpass("Enter user's password: ")
@@ -1158,7 +1183,7 @@ def dos(args=None):
 
 # функция для запуска программы и проверки HWID
 def start():
-    text = text2art("osint MASTER", font="small")
+    text = text2art("OSINT MASTER", font="small")
     print(Fore.GREEN + text + Style.RESET_ALL)
     id = safe_get_hwid()
     if id is None:  
@@ -1181,11 +1206,12 @@ if __name__ == "__main__":
     watcher_thread = threading.Thread(target=watcher, daemon=True)
     watcher_thread.start()
     try:
-        SIMPLE_COMMANDS.set_console_title("osint MASTER")
+        SIMPLE_COMMANDS.set_console_title("OSINT MASTER")
         start()
     except KeyboardInterrupt:
         SIMPLE_COMMANDS.graceful_exit()
     except Exception:
+        traceback.print_exc()
         input("Press Enter to exit...")
 
     

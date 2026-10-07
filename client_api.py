@@ -164,6 +164,24 @@ def send_message(hwid: str, to_name: str = None, text: str = None, names:list = 
     else:
         print(f"{Fore.RED}Error occurred: {resp.json().get('detail', resp.text)}{Style.RESET_ALL}")
 
+def get_cs(hwid: str):
+    token = _load_token()
+    if not token:
+        print(f"{Fore.RED}Not logged in.{Style.RESET_ALL}")
+        return None
+
+    resp = _post("/chat/get_chats", {"hwid": hwid, "device_token": token})
+    if resp is None:
+        return None
+
+    try:
+        return resp.json()
+    except ValueError:
+        print(f"{Fore.RED}Сервер вернул не-JSON ответ.{Style.RESET_ALL}")
+        return None
+
+
+
 def get_status(hwid: str, silent: bool = False):
     """Чистое чтение своих данных из БД (restart/shutdown/message/d_level/
     tries_th) — без каких-либо изменений на сервере. Можно звать не только
