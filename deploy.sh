@@ -22,7 +22,7 @@ INSTALLER_NAME="MarkSetup.exe"  # <-- должно совпадать с OutputB
 
 # Путь к компилятору Inno Setup. Можно переопределить снаружи:
 #   INNO_COMPILER="/c/Program Files/Inno Setup 6/ISCC.exe" ./deploy.sh v1.3.0
-INNO_COMPILER="${INNO_COMPILER:-/c/Program Files (x86)/Inno Setup 6/ISCC.exe}"
+INNO_COMPILER="${INNO_COMPILER:-/c/Program Files/Inno Setup 7/ISCC.exe}"
 
 if [ -z "$VERSION" ]; then
   echo -e "\e[31mUsage: ./deploy.sh vX.Y.Z \"changelog text\"\e[0m"
