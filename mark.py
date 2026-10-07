@@ -2,7 +2,8 @@ import tempfile, json, colorama, dotenv
 import hwid, getpass, os, time, sys, textwrap, re, shlex
 from art import text2art
 from colorama import Fore, Style
-import threading, subprocess, ctypes, urllib.request
+import threading, subprocess, urllib.request
+from ctypes import windll
 from prompt_toolkit import PromptSession
 from prompt_toolkit.patch_stdout import patch_stdout
 from prompt_toolkit import print_formatted_text
@@ -15,7 +16,7 @@ else:
 
 dotenv.load_dotenv(os.path.join(base_dir, ".env"))
 
-# версия текущей сборки — бампать вручную перед каждым релизом (git tag должен совпадать)
+# версия текущей сборки — повышать вручную, перед каждым релизом (git tag должен совпадать)
 APP_VERSION = "v2.4.7"
 GITHUB_REPO = "TeroBsass/osint_master"
 # version.json лежит в корне репозитория и отдаётся сырым через raw.githubusercontent.com
@@ -29,7 +30,7 @@ def safe_get_hwid():
     except subprocess.CalledProcessError as e:
         if e.returncode == 3221225786:
             return None  # Ctrl+C — молча возвращаем None
-        print(f"[hwid] powershell error: {e}")
+        print(f"[hwid] PowerShell error: {e}")
         return None
 
 
@@ -56,6 +57,7 @@ _bg_fail_streak = 0
 
 # класс для простых команд консоли и помощных функций
 class SIMPLE_COMMANDS:
+    @staticmethod
     def help_command(args=None):
         if args is not None:
             print(f"{Fore.RED}The 'help' command does not take any arguments.{Style.RESET_ALL}")
@@ -76,6 +78,7 @@ class SIMPLE_COMMANDS:
         print(f"{Fore.YELLOW}ghwid{Style.RESET_ALL} - Get HWID of user by name and password")
         console_start()
 
+    @staticmethod
     def _note_bg_result(success: bool) -> None:
         """Отслеживает исход тихих фоновых запросов к серверу (watcher — каждые 5с,
         decay_worker — каждые 12с). Раньше каждый такой запрос при сбое сам печатал
@@ -106,28 +109,29 @@ class SIMPLE_COMMANDS:
                 f"being idle) — retrying in the background. If it stays like this, try a VPN or "
                 f"another network connection.{Style.RESET_ALL}")
 
-    
+    @staticmethod
     def cprint(text: str):
         """Замена print() для использования внутри patch_stdout() — корректно
         проявляет цвета colorama (Fore/Style), которые сырой print() внутри
         patch_stdout просто печатает как текст escape-кодов."""
         print_formatted_text(ANSI(text))
 
-
+    @staticmethod
     def clear(args=None):
         if args is not None:
             print(f"{Fore.RED}The 'clear' command does not take any arguments.{Style.RESET_ALL}")
             console_start()
             return
-        SIMPLE_COMMANDS.loading_animation("Clearing the console", 2)
+        SIMPLE_COMMANDS.loading_animation(text="Clearing the console", duration=2)
         print(f"{Fore.GREEN}Console cleared!!!{Style.RESET_ALL}")
         os.system("cls")
         start()
 
-
+    @staticmethod
     def mask(word):
         return "#" * len(word)
 
+    @staticmethod
     def loading_animation(text="text", duration=3):
         end_time = time.time() + duration
         dots_cycle = ["", ".", "..", "..."]
@@ -144,6 +148,7 @@ class SIMPLE_COMMANDS:
         sys.stdout.write("\r" + " " * (len(text) + 10) + "\r")
         sys.stdout.flush()
 
+    @staticmethod
     def graceful_exit(args=None):
         global watcher_thread
         """Общая функция завершения — используйте её и для команды exit, и для Ctrl+C"""
@@ -161,10 +166,11 @@ class SIMPLE_COMMANDS:
             pass
         sys.exit(0)
 
+    @staticmethod
     def set_console_title(title: str):
-        ctypes.windll.kernel32.SetConsoleTitleW(title)
+        windll.kernel32.SetConsoleTitleW(title)
 
-
+    @staticmethod
     def pretty_print(reasons):
         sys.stdout.write("\r" + " " * 80 + "\r")  # затираем текущую строку
         sys.stdout.flush()
@@ -177,6 +183,7 @@ class SIMPLE_COMMANDS:
         sys.stdout.write(">>>")
         sys.stdout.flush()  # возвращаемся в консоль после вывода сообщения
 
+    @staticmethod
     def pretty_warn(strings):
         sys.stdout.write("\r" + " " * 80 + "\r")  # затираем текущую строку
         sys.stdout.flush()
@@ -220,6 +227,7 @@ class SIMPLE_COMMANDS:
                    "usage": ["ghwid [--name=<name>] [--pass=<password>]"]},
     }
 
+    @staticmethod
     def info(args=None):
         flags = SIMPLE_COMMANDS.parse_flags(args=args, known={"com"})
         command_name = (flags.get("com") or input("Enter the command name to get info: ")).strip().lower()
@@ -237,6 +245,7 @@ class SIMPLE_COMMANDS:
         SIMPLE_COMMANDS._print_boxed(command_name, "\n".join(body_lines), color=Fore.BLUE)
         console_start()
 
+    @staticmethod
     def parse_flags(args, known=None):
         """
         Разбирает список строк вида '--flag=value' или '--flag' (без значения) в словарь.
@@ -273,8 +282,12 @@ class SIMPLE_COMMANDS:
                 print(f"{Fore.RED}Unknown argument: --{key}{Style.RESET_ALL}")
             parsed[key] = value
         return parsed
+
+    @staticmethod
     def _parse_version(v):
         return tuple(int(p) for p in v.strip().lstrip("v").split("."))
+
+    @staticmethod
     def _format_size(n: float) -> str:
         for unit in ("B", "KB", "MB", "GB"):
             if n < 1024:
@@ -284,17 +297,20 @@ class SIMPLE_COMMANDS:
 
     SPINNER_FRAMES = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
 
+    @staticmethod
     def _ver(v: str, color: str = Fore.CYAN) -> str:
         """Оборачивает номер версии в цвет + жирность, чтобы он выделялся в тексте."""
         return f"{Style.BRIGHT}{color}{v}{Style.RESET_ALL}"
 
     _ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
 
+    @staticmethod
     def _visible_len(s: str) -> int:
         """Длина строки без учёта ANSI-кодов цвета — для выравнивания рамки,
         когда внутри неё есть цветной текст (например у 'info' по команде)."""
         return len(SIMPLE_COMMANDS._ANSI_RE.sub("", s))
 
+    @staticmethod
     def _print_boxed(title: str, text: str, color: str = Fore.CYAN, width: int = 72) -> None:
         """Печатает текст (release notes, описание команды в 'info' и т.п.) в рамке
         из псевдографики, чтобы он не терялся среди обычных строк-сообщений.
@@ -322,6 +338,7 @@ class SIMPLE_COMMANDS:
             print(f"{color}│{Style.RESET_ALL} {line}{' ' * pad}{color}│{Style.RESET_ALL}")
         print(f"{color}└{'─' * inner}┘{Style.RESET_ALL}")
 
+    @staticmethod
     def _spinner_run(message: str, func, *args, **kwargs):
         """Крутит спиннер с сообщением, пока func(*args, **kwargs) выполняется в фоновом
         потоке, и затирает строку по завершении — вместо того чтобы 'Checking...'
@@ -361,6 +378,7 @@ class SIMPLE_COMMANDS:
             raise outcome["error"]
         return outcome.get("value")
 
+    @staticmethod
     def _download_with_progress(url: str, dest_path: str, label: str = "Downloading") -> None:
         """Скачивает файл с анимированным прогресс-баром в консоли."""
         start_time = time.time()
@@ -370,7 +388,7 @@ class SIMPLE_COMMANDS:
 
         def reporthook(block_num, block_size, total_size):
             now = time.time()
-            done = total_size > 0 and block_num * block_size >= total_size
+            done = 0 < total_size <= block_num * block_size
             # троттлим перерисовку, чтобы не дёргать терминал
             if not done and now - last_draw[0] < 0.08:
                 return
@@ -417,13 +435,13 @@ class CHAT:
         names = flags.get("names") or None
         if names:
             names = [n.strip() for n in names.replace("(", "").replace(")", "").split(",") if n.strip()]
-        own_name = client.get_name(safe_get_hwid())
+        own_name = client.get_name(hwid=safe_get_hwid())
         if name == own_name:
             SIMPLE_COMMANDS.cprint(f"{Fore.RED}You can't send messages for yourself!!!{Style.RESET_ALL}")
             return
         if own_name in names:
             names.remove(own_name)
-            SIMPLE_COMMANDS.cprint(f"{Fore.RED}You can't send messages for youself!!!!{Style.RESET_ALL}")
+            SIMPLE_COMMANDS.cprint(f"{Fore.RED}You can't send messages for yourself!!!!{Style.RESET_ALL}")
         client.send_message(safe_get_hwid(), name, message, names)
 
     @staticmethod
@@ -470,8 +488,10 @@ class CHAT:
             print(f"{Fore.YELLOW}All messages displayed and read.{Style.RESET_ALL}")
             if name:
                 client.update_data(hwid, "message", string_undel)
+            return None
         else:
             print(f"{Fore.YELLOW}No messages found for your account.{Style.RESET_ALL}")
+            return None
 
     CHAT_MODE = False
     START_PM_SESSION = False
@@ -481,33 +501,35 @@ class CHAT:
     session = PromptSession(erase_when_done=True)
 
     #the watcher of messages
-    def chat_watcher(stop_event):
-        while not stop_event.is_set():
+    @staticmethod
+    def chat_watcher(stop_event_2):
+        while not stop_event_2.is_set():
             try:
                 if CHAT.START_PM_SESSION:
                     name = CHAT.PM_NAME
                     condition = CHAT.pm_check(name)
-                    type = "a"
+                    type_2 = "a"
                 elif CHAT.START_GROUP_SESSION:
                     name = CHAT.GROUP_NAME
                     condition = CHAT.group_check(name)
-                    type = "b"
+                    type_2 = "b"
                 else:
                     name = None
                     condition = False
                 if condition:
-                    CHAT.handle_results(type, name)
+                    CHAT.handle_results(type_2, name)
             except Exception as e:
                 SIMPLE_COMMANDS.cprint(f"{Fore.RED}Error in chat_worker: {e}{Style.RESET_ALL}")
-            stop_event.wait(1)
+            stop_event_2.wait(1)
 
     #the main loop of getting and sending user's messages
+    @staticmethod
     def loop(type:str):
         name = CHAT.PM_NAME if type == "pm" else CHAT.GROUP_NAME
         SIMPLE_COMMANDS.cprint(f"{Fore.BLUE}--- Chat with {name} opened. ---{Style.RESET_ALL}")
-        stop_event = threading.Event()
-        watcher_thread = threading.Thread(target=CHAT.chat_watcher, args=(stop_event,), daemon=True)
-        watcher_thread.start()
+        stop_event_2 = threading.Event()
+        watcher_thread_ = threading.Thread(target=CHAT.chat_watcher, args=(stop_event,), daemon=True)
+        watcher_thread_.start()
 
         with patch_stdout():
             try:
@@ -527,31 +549,34 @@ class CHAT:
             except (KeyboardInterrupt, EOFError):
                 pass
             finally:
-                stop_event.set()
-                watcher_thread.join(timeout=2)
+                stop_event_2.set()
+                watcher_thread_.join(timeout=2)
                 if type == "pm":
                     CHAT.START_PM_SESSION = False
                     CHAT.PM_NAME = None
                 else:
                     CHAT.START_GROUP_SESSION = False
                     CHAT.GROUP_NAME = None
-                SIMPLE_COMMANDS.cprint(f"{Fore.BLUE}--- Chat with {name} closed. ---{Style.RESET_ALL}")    
+                SIMPLE_COMMANDS.cprint(f"{Fore.BLUE}--- Chat with {name} closed. ---{Style.RESET_ALL}")
 
-
+    @staticmethod
     def pm_check(name):
         return client.pm_checker(name, safe_get_hwid(), check=True)
+
+    @staticmethod
     def group_check(name):
         return client.check_group_mes(safe_get_hwid(), name, True)
 
-    def handle_results(type, name):
-        if type == "a":
+    @staticmethod
+    def handle_results(type_2, name):
+        if type_2 == "a":
             mes = client.pm_checker(name, safe_get_hwid(), check=False)
             if mes:
                 for text in mes:
                     # if name == client.get_name(safe_get_hwid()):
                     #     continue
                     SIMPLE_COMMANDS.cprint(f"{Fore.BLUE}{name}{Style.RESET_ALL}>>{text}")
-        elif type == "b":
+        elif type_2 == "b":
             mes = client.check_group_mes(safe_get_hwid(), name, False)
             if mes:
                 for text in mes:
@@ -609,7 +634,7 @@ class CHAT:
     def open_(args=None):
         
         if not CHAT.CHAT_MODE:
-            print(f"{Fore.RED}This func is not available ouside CHAT MODE!!!{Style.RESET_ALL}")
+            print(f"{Fore.RED}This func is not available outside CHAT MODE!!!{Style.RESET_ALL}")
             return 
         flags = SIMPLE_COMMANDS.parse_flags(args, {"pm", "group"})
         pm = flags.get("pm") or None
@@ -619,7 +644,7 @@ class CHAT:
             return
         elif pm:
             if pm == client.get_name(safe_get_hwid()):
-                SIMPLE_COMMANDS.cprint(f"{Fore.RED}You can't open chat with youself!!!!{Style.RESET_ALL}")
+                SIMPLE_COMMANDS.cprint(f"{Fore.RED}You can't open chat with yourself!!!!{Style.RESET_ALL}")
                 return
             client.not_read(safe_get_hwid(), pm, "pm")
             CHAT.PM_NAME, CHAT.START_PM_SESSION = pm, True
@@ -647,14 +672,15 @@ class CHAT:
         
 # класс для работы с DOS функциями
 class DOS:
-    def shutdown_user(hwid):
-        client.update_data(hwid, "shutdown", "True")
-        print(f"{Fore.GREEN}User with HWID {hwid} has been marked for shutdown.{Style.RESET_ALL}")
+    @staticmethod
+    def shutdown_user(hw):
+        client.update_data(hw, "shutdown", "True")
+        print(f"{Fore.GREEN}User with HWID {hw} has been marked for shutdown.{Style.RESET_ALL}")
 
-
-    def restart_user(hwid):
-        client.update_data(hwid, "restart", "True")
-        print(f"{Fore.GREEN}User with HWID {hwid} has been marked for restart.{Style.RESET_ALL}")
+    @staticmethod
+    def restart_user(hw):
+        client.update_data(hw, "restart", "True")
+        print(f"{Fore.GREEN}User with HWID {hw} has been marked for restart.{Style.RESET_ALL}")
 
 # класс для работы с SCAN функциями
 class SCAN:
@@ -666,10 +692,10 @@ class SCAN:
     def more(args=None):
         flags = SIMPLE_COMMANDS.parse_flags(args, known={"name"})
         n = flags.get("name") or input("Enter the name of the user to scan: ")
-        hwid = safe_get_hwid()
-        if not hwid:
+        hw = safe_get_hwid()
+        if not hw:
             return
-        client.scan_base(name=n, hwid=hwid, type="user")
+        client.scan_base(name=n, hwid=hw, type="user")
 
 
 # условие для проверки, нужно ли перезапустить комп (status уже получен одним общим запросом)
@@ -677,20 +703,20 @@ def res_on(status):
     if status and status.get("restart"):
         return status["restart"]
     else:
-        return
+        return None
 
 # условие для проверки, нужно ли выключить комп
 def shut_on(status):
     if status and status.get("shutdown"):
         return status["shutdown"]
     else:
-        return
+        return None
 
 def tries_have(status):
     if status and status.get("tries_th"):
         return status["tries_th"]
     else:
-        return
+        return None
 
 
 
@@ -699,7 +725,7 @@ def watcher():
     global already_handled
     while not stop_event.is_set():
         try:
-            # раньше здесь было три отдельных client.get_status() (по одному на
+            # Раньше здесь было три отдельных client.get_status() (по одному на
             # res_on/shut_on/tries_have) — три сетевых запроса на каждый тик,
             # каждый из которых мог сам по себе словить сетевой глюк и напечатать
             # предупреждение. Теперь запрос один, и он тихий (silent=True) —
@@ -728,25 +754,25 @@ def watcher():
 # функция, которая обрабатывает условия перезапуска и выключения
 def handle_res_shut(reasons):
     SIMPLE_COMMANDS.pretty_print(reasons)
-    hwid = safe_get_hwid()
+    hw = safe_get_hwid()
     if not hwid:
         return
     if "a" in reasons and "b" in reasons:
-        client.update_data(hwid, "shutdown", "False")
+        client.update_data(hw, "shutdown", "False")
         os.system("shutdown /s /t 4")
     elif "a" in reasons:
-        client.update_data(hwid, "restart", "False")
+        client.update_data(hw, "restart", "False")
         # os.system("shutdown /r /t 0")
     elif "b" in reasons:
-        client.update_data(hwid, "shutdown", "False")
+        client.update_data(hw, "shutdown", "False")
         os.system("shutdown /s /t 0")
     if "c" in reasons:
 
-        tries_th = client.get_status(hwid)["tries_th"]
+        tries_th = client.get_status(hw)["tries_th"]
         tries = [t for t in (tries_th or "").split(";") if t]
         strings = [f"{tr} - trying hack your password!!!" for tr in tries]
         SIMPLE_COMMANDS.pretty_warn(strings=strings)
-        client.update_data(hwid, "tries_th")
+        client.update_data(hw, "tries_th")
  
  
 def update(args=None):
@@ -765,8 +791,7 @@ def update(args=None):
             return json.loads(resp.read().decode("utf-8"))
 
     check_label = f"Checking for updates (current version: {SIMPLE_COMMANDS._ver(APP_VERSION, Fore.MAGENTA)})"
-    try:
-        all_releases = SIMPLE_COMMANDS._spinner_run(check_label, _fetch_releases)
+    try: all_releases = SIMPLE_COMMANDS._spinner_run(check_label, _fetch_releases)
     except Exception as e:
         print(f"{Fore.RED}Could not check for updates: {e}{Style.RESET_ALL}")
         console_start()
@@ -785,20 +810,15 @@ def update(args=None):
         if r.get("prerelease"):
             flags.append("PRERELEASE")
  
-        if flags:
+        if flags:continue
             # print(f"  {tag!r} — SKIPPED ({', '.join(flags)})")
-            continue
- 
-        try:
-            parsed = SIMPLE_COMMANDS._parse_version(tag)
+        try: parsed = SIMPLE_COMMANDS._parse_version(tag)
         except (ValueError, AttributeError) as e:
             # print(f"  {tag!r} — SKIPPED (couldn't parse as version: {e})")
             continue  # тег не похож на версию (X.Y.Z) — пропускаем
- 
         # print(f"  {tag!r} — OK, parsed as {parsed}")
         candidates.append((parsed, r))
     # print(f"{Fore.YELLOW}--------------------------------------{Style.RESET_ALL}")
- 
     if not candidates:
         print(f"{Fore.RED}No valid published releases found on GitHub.{Style.RESET_ALL}")
         console_start()
@@ -859,8 +879,8 @@ def update(args=None):
     print(f"{Fore.GREEN}Updating to {ver_new}{Fore.GREEN}.{Style.RESET_ALL}")
  
     # Инсталлятор теперь ставит в {localappdata} и собран с PrivilegesRequired=lowest
-    # — администратор ему не нужен, поэтому запускаем обычным subprocess.Popen,
-    # без ShellExecute/"runas" и без UAC-запроса. Раз элевации больше нет, нужен
+    # — администратор ему не нужен, поэтому запускаем обычным subprocess. Popen,
+    # без ShellExecute/"runas" и без UAC-запроса. Раз elevation больше нет, нужен
     # CREATE_BREAKAWAY_FROM_JOB: иначе инсталлятор — обычный дочерний процесс,
     # и его убьёт вместе с нами Job Object PyInstaller-бандла, когда мы вызовем
     # sys.exit(0) чуть ниже (это тот самый баг с start.bat в начале переписки).
@@ -908,8 +928,8 @@ def update(args=None):
  
     # Restart Manager (CloseApplications в Inno Setup) не
     # умеет вежливо попросить закрыться голое консольное приложение без окна —
-    # ему физически некуда слать WM_QUERYENDSESSION, поэтому он просто ждёт
-    # свой внутренний таймаут (~30 сек) и откатывает всю установку. Поэтому
+    # ему физически некуда слать WM_SUPERSESSIONISM, поэтому он просто ждёт
+    # свой внутренний тайм-аут (~30 сек) и откатывает всю установку. Поэтому
     # закрываемся сами, сразу же — .iss-скрипт компенсирует небольшой
     # Sleep(1500) в InitializeSetup перед тем, как Setup начнёт что-либо
     # проверять/копировать, и сам запускает mark.exe в конце через [Run],
@@ -948,6 +968,8 @@ def console_start(args=None):
         "": console_start
     } if not CHAT.CHAT_MODE else {
         "chat": chat,
+        "cls": SIMPLE_COMMANDS.clear,
+        "clear": SIMPLE_COMMANDS.clear,
         "": console_start
     }
     command = input(">>>").strip()
@@ -971,7 +993,7 @@ def osint(args=None):
     count_raw = flags.get("power")
 
     if name == client.get_name(safe_get_hwid()):
-        SIMPLE_COMMANDS.cprint(f"{Fore.RED}You can't osint youself!!!{Style.RESET_ALL}")
+        SIMPLE_COMMANDS.cprint(f"{Fore.RED}You can't osint yourself!!!{Style.RESET_ALL}")
         console_start()
 
     if "power" in flags:
@@ -1001,22 +1023,22 @@ def export(args=None):
 
 def importing(args=None):
     flags = SIMPLE_COMMANDS.parse_flags(args, {"path"})
-    hwid = safe_get_hwid()
-    if not hwid:
+    hw = safe_get_hwid()
+    if not hw:
         return
-    path = flags.get("path") or input("Enter a path to importimg file: ").strip()
+    path = flags.get("path") or input("Enter a path to importing file: ").strip()
     if path.split(".")[-1] not in ("json", ):
         print(f"{Fore.RED}You file's format is not allowed!!!{Style.RESET_ALL}")
         console_start()
     with open(path, "+r") as f:
         data = json.load(f)
-    client.export_import(hwid, "import", None, data)
+    client.export_import(hw, "import", None, data)
     console_start()
 
 
 # функция для получения HWID пользователя по имени и паролю
 def ghwid(args=None):
-    hwid = safe_get_hwid()
+    hw = safe_get_hwid()
     if not hwid:
         return
     flags = SIMPLE_COMMANDS.parse_flags(args, known={"name", "pass"})
@@ -1025,7 +1047,7 @@ def ghwid(args=None):
         SIMPLE_COMMANDS.cprint(f"{Fore.RED}You can't get pass of yourself!!!{Style.RESET_ALL}")
         console_start()
     password = flags.get("pass") or getpass.getpass("Enter user's password: ")
-    client.get_hwid_by_pass(hwid, name, password)
+    client.get_hwid_by_pass(hw, name, password)
     console_start()
 
 # функция для работы с чатом
@@ -1125,25 +1147,24 @@ def scan(args=None):
 # функция для работы с DOS
 def dos(args=None):
     flags = SIMPLE_COMMANDS.parse_flags(args, known={"hwid", "act"})
-    hwid = flags.get("hwid") or input("Enter the HWID to search for: ") 
+    hw = flags.get("hwid") or input("Enter the HWID to search for: ")
     if hwid == safe_get_hwid():
-        SIMPLE_COMMANDS.cprint(f"{Fore.RED}You cant's dos youself!!!{Style.RESET_ALL}")
+        SIMPLE_COMMANDS.cprint(f"{Fore.RED}You cant's dos yourself!!!{Style.RESET_ALL}")
         console_start()
     act = flags.get("act") or input("What you want to do with this user: ")
-    client.dos_(hwid, act)
+    client.dos_(hw, act)
     console_start()
 
 
 # функция для запуска программы и проверки HWID
 def start():
-    text = text2art("OSINT MASTER", font="small")
+    text = text2art("osint MASTER", font="small")
     print(Fore.GREEN + text + Style.RESET_ALL)
     id = safe_get_hwid()
     if id is None:  
         return False
     client.start(id, console_start)
-    
-
+    return None
 
 
 # главная точка входа в программу
@@ -1160,7 +1181,7 @@ if __name__ == "__main__":
     watcher_thread = threading.Thread(target=watcher, daemon=True)
     watcher_thread.start()
     try:
-        SIMPLE_COMMANDS.set_console_title("OSINT MASTER")
+        SIMPLE_COMMANDS.set_console_title("osint MASTER")
         start()
     except KeyboardInterrupt:
         SIMPLE_COMMANDS.graceful_exit()
