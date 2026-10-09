@@ -78,7 +78,7 @@ Source: ".env"; DestDir: "{app}"; Flags: onlyifdoesntexist
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"
 
 [Icons]
-Name: "{userdesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
+Name: "{userdesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\trolling.ico"; Tasks: desktopicon
 
 [Run]
 ; Без "postinstall"/"skipifsilent" — запускается безусловно и в обычном

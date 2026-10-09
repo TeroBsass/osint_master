@@ -18,8 +18,8 @@ else:
 dotenv.load_dotenv(os.path.join(base_dir, ".env"))
 
 # версия текущей сборки — повышать вручную, перед каждым релизом (git tag должен совпадать)
-APP_VERSION = "v2.5.5"
-GITHUB_REPO = "TeroBsass/osint_master"
+APP_VERSION = "v2.5.6"
+GITHUB_REPO = "TeroBsass/trolling"
 # version.json лежит в корне репозитория и отдаётся сырым через raw.githubusercontent.com
 GITHUB_API_RELEASES = f"https://api.github.com/repos/{GITHUB_REPO}/releases"
 
