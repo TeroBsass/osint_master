@@ -27,8 +27,8 @@
   #define MyAppVersion "0.0.0"
 #endif
 
-#define MyAppName "Osint Master"
-#define MyAppExeName "mark.exe"
+#define MyAppName "TROLLING"
+#define MyAppExeName "trolling.exe"
 
 ; ВАЖНО: этот GUID должен оставаться ОДНИМ И ТЕМ ЖЕ во всех последующих
 ; релизах — по нему Inno Setup (и "Установка и удаление программ") узнаёт,
@@ -73,6 +73,12 @@ RestartApplications=no
 ; что внутри, тоже попало в {app} и корректно отслеживалось при удалении.
 Source: "dist\mark\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: ".env"; DestDir: "{app}"; Flags: onlyifdoesntexist
+
+[Tasks]
+Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"
+
+[Icons]
+Name: "{userdesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
 
 [Run]
 ; Без "postinstall"/"skipifsilent" — запускается безусловно и в обычном

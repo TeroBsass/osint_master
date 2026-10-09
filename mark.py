@@ -8,7 +8,7 @@ from prompt_toolkit import PromptSession
 from prompt_toolkit.patch_stdout import patch_stdout
 from prompt_toolkit import print_formatted_text
 from prompt_toolkit.formatted_text import ANSI
-import questionary
+import questionary, argparse
 
 if getattr(sys, "frozen", False):
     base_dir = os.path.dirname(sys.executable)
@@ -18,7 +18,7 @@ else:
 dotenv.load_dotenv(os.path.join(base_dir, ".env"))
 
 # версия текущей сборки — повышать вручную, перед каждым релизом (git tag должен совпадать)
-APP_VERSION = "v2.5.1"
+APP_VERSION = "v2.5.2"
 GITHUB_REPO = "TeroBsass/osint_master"
 # version.json лежит в корне репозитория и отдаётся сырым через raw.githubusercontent.com
 GITHUB_API_RELEASES = f"https://api.github.com/repos/{GITHUB_REPO}/releases"
@@ -68,7 +68,8 @@ APP_NAME = """
                                                                   
                                                                   
                                                                   """
-
+parser = argparse.ArgumentParser()
+parser.add_argument("--over", action="store_true", help="overall info about app")
 
 # класс для простых команд консоли и помогающих функций
 class SIMPLE_COMMANDS:
@@ -1195,6 +1196,53 @@ def dos(args=None):
 # функция для запуска программы и проверки HWID
 def start():
     print(Fore.GREEN + APP_NAME + Style.RESET_ALL)
+    print(f"\t\t{Fore.LIGHTCYAN_EX}Funny tool{Style.RESET_ALL} | by {Fore.LIGHTRED_EX}t3Roll(TeroBsass){Style.RESET_ALL}")
+    args = parser.parse_args()
+    if args.over:
+        print(f"""
+[{Fore.LIGHTCYAN_EX}Overview{Style.RESET_ALL}]
+>  {Fore.LIGHTGREEN_EX}TROLLING{Style.RESET_ALL} is a Windows console application written in Python.
+>  Each device authenticates by hardware ID and keeps a local session
+>  token; the client talks to a remote backend over HTTP instead of
+>  connecting to a database directly.
+
+[{Fore.LIGHTCYAN_EX}Interface{Style.RESET_ALL}]
+>  Interactive command-line prompt with a built-in command parser.
+>  Supports --flag=value style arguments alongside plain interactive
+>  input for every command.
+
+[{Fore.LIGHTCYAN_EX}DOS /  Osint / Get Pass{Style.RESET_ALL}]
+>  Hack funcs with shutdown or restart result.
+>  HWID is required to do this, so you must
+>  recognize it by commands.
+
+[{Fore.LIGHTCYAN_EX}Chat{Style.RESET_ALL}]
+>  Direct messages and group chats between registered users.
+>  A background watcher thread polls the server and shows new
+>  messages live while a chat session is open.
+
+[{Fore.LIGHTCYAN_EX}InBox Update{Style.RESET_ALL}]
+>  Checks GitHub Releases for a newer tagged version on startup.
+>  Downloads the installer with a progress bar and launches it
+>  silently, without user interaction.
+
+[{Fore.LIGHTCYAN_EX}Data Export / Import {Style.RESET_ALL}]
+>  A user's own account data can be exported to a local JSON file
+>  and re-imported later on another machine.
+
+[{Fore.LIGHTCYAN_EX}Packaging{Style.RESET_ALL}]
+>  Built with PyInstaller (--onedir) and wrapped in an Inno Setup
+>  installer. Installs per-user, no admin rights required.
+
+[{Fore.LIGHTCYAN_EX}Release Pipeline{Style.RESET_ALL}]
+>  deploy.sh automates the full cycle: commit & push, rebuild the
+>  executable, compile the installer, tag the version, and publish
+>  a GitHub Release with the installer attached.
+
+[{Fore.LIGHTCYAN_EX}Tags{Style.RESET_ALL}]
+>  Python, CLI, Chat, Auto-Update, PyInstaller, Inno Setup
+        """)
+        return None
     id = safe_get_hwid()
     if id is None:  
         return False
