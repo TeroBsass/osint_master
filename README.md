@@ -1,6 +1,6 @@
 # TROLLING
 <figure><img src="example.png" alt=""><figcaption></figcaption></figure>
----
+---------------------------------------------------------------------------------------------------------
 
 ### Setup
 
@@ -21,7 +21,7 @@ https://github.com/TeroBsass/osint_master/releases
 <br>
 
 <figure><img src="fin.jpg" alt=""><figcaption></figcaption></figure>
----
+----------------------------------------------------------------------------------------------------------
 
 ### Usage
 
@@ -36,3 +36,11 @@ https://github.com/TeroBsass/osint_master/releases
 
 <figure><img src="help.png" alt=""><figcaption></figcaption></figure>
 
+**Need**
+What you need:
+ - VPN(for Russia and another countries like that)
+ - Windows OS(For windows only now, sorry)
+ - Internet connection for sure
+
+
+<p align="center">Great usage and having fun</p>
