@@ -1,5 +1,6 @@
 # TROLLING
 <figure><img src="example.png" alt=""><figcaption></figcaption></figure>
+---
 
 ### Setup
 
@@ -20,6 +21,7 @@ https://github.com/TeroBsass/osint_master/releases
 <br>
 
 <figure><img src="fin.jpg" alt=""><figcaption></figcaption></figure>
+---
 
 ### Usage
 
