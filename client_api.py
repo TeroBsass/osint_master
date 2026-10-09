@@ -376,17 +376,24 @@ def check_group_mes(hwid, id, check):
         return None
     
 
-def update_data(hwid: str, ch="", val=None, silent: bool = False, table:str = "users"):
+def update_data(hwid: str, dos: bool = False, ch="", val=None, silent: bool = False, table:str = "users"):
     token = _load_token()
     if not token:
         return None
 
     resp = _post("/post/data", {"hwid": hwid, "ch": ch, "val": val, "table": table, "token": token}, silent=silent)
     if resp is None:
-            return None
+        return None
      
     if resp.status_code == 200:
-        return resp.json()
+        if resp.json().get("status", "") == "post" and dos:
+            print(f"[SYSTEM]:{Fore.GREEN}The info posted.{Style.RESET_ALL}")
+            return None
+        return None
+
+    if resp.status_code == 400:
+        print(f"{Fore.RED}{resp.json().get('detail', resp.text)}{Style.RESET_ALL}")
+        return None
      
     if resp.status_code == 401:
         # токен отозван/невалиден — не оставляем протухший локальный файл
@@ -486,19 +493,22 @@ def dos_(hwid:str, act:str):
         return None
     if resp.status_code == 402:
         print(f"{Fore.RED}No user found with HWID: {hwid}{Style.RESET_ALL}")
+        return None
     acts = {
-        "shutdown": lambda: DOS.shutdown_user(hwid),
-        "restart": lambda: DOS.restart_user(hwid),
+        "shutdown": DOS.shutdown_user,
+        "restart": DOS.restart_user,
     }
-    print(f"{Fore.GREEN}User found.{Style.RESET_ALL}")
+    print(f"[SYSTEM]:{Fore.GREEN}User found.{Style.RESET_ALL}")
                    
                     
     if act in acts:
-        acts[act]()
+        print(f"[SYSTEM]:{Fore.GREEN}Act is valid.{Style.RESET_ALL}")
+        acts[act](hwid)
         return None
     else:
         print(f"{Fore.RED}Unknown action: {act}{Style.RESET_ALL}")
         return None
+
 
 
 def osint_user(name: str = None, hwid: str = None, count: int = None):

