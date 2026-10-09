@@ -18,19 +18,19 @@ https://github.com/TeroBsass/osint_master/releases
 
 > and then to Finish
 <br>
-<br>
+<br><br>
 <figure><img src="fin.jpg" alt=""><figcaption></figcaption></figure>
-<br>
+<br><br>
 ### Usage
-<br>
+<br><br>
 **Reg**
 > Register your acc
-<br>
+<br><br>
 <figure><img src="reg.png" alt=""><figcaption></figcaption></figure>
-<br>
-<br>
-<br>
+<br><br>
+<br><br>
+<br><br>
 **Commands**
-<br>
+<br><br>
 <figure><img src="help.png" alt=""><figcaption></figcaption></figure>
 
