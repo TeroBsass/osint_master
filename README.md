@@ -7,14 +7,17 @@
 
 ```bash
 https://github.com/TeroBsass/osint_master/releases
-install last release
 ```
 
 **Do .iso intractions and install tool**
-> In opened window click to Install and then to Finish
+
+> In opened window click to Install 
 <br>
 
 <figure><img src="in.jpg" alt=""><figcaption></figcaption></figure>
+
+> and then to Finish
+<br>
 
 <figure><img src="fin.jpg" alt=""><figcaption></figcaption></figure>
 
@@ -24,6 +27,8 @@ install last release
 > Register your acc
 <br>
 <figure><img src="reg.png" alt=""><figcaption></figcaption></figure>
+
+
 
 **Commands**
 
