@@ -36,7 +36,7 @@ https://github.com/TeroBsass/osint_master/releases
 
 <figure><img src="help.png" alt=""><figcaption></figcaption></figure>
 
-**Need**
+## Need
 What you need:
  - VPN(for Russia and another countries like that)
  - Windows OS(For windows only now, sorry)
