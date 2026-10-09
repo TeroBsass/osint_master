@@ -68,7 +68,7 @@ rm -rf dist build Output
 # после update(). Раскладка exe + _internal/ в обычную папку такому не
 # подвержена. Итог сборки теперь dist/mark/mark.exe + dist/mark/_internal/,
 # см. соответствующие правки в [Files] $ISS_SCRIPT.
-python -m PyInstaller --onedir "$ENTRY_SCRIPT"
+python -m PyInstaller --onedir --name trolling "$ENTRY_SCRIPT"
 # .env НЕ передаётся через --add-data — он не должен попасть внутрь самого exe,
 # в инсталлятор он подкладывается отдельно, см. [Files] в $ISS_SCRIPT
 

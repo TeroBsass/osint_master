@@ -1,5 +1,5 @@
 # TROLLING
-<figure><img src="example.png" alt=""><figcaption></figcaption></figure>
+<figure><img src="assets/example.png" alt=""><figcaption></figcaption></figure>
 
 ---
 
@@ -16,12 +16,12 @@ https://github.com/TeroBsass/osint_master/releases
 > In opened window click to Install 
 <br>
 
-<figure><img src="in.jpg" alt=""><figcaption></figcaption></figure>
+<figure><img src="assets/in.jpg" alt=""><figcaption></figcaption></figure>
 
 > and then to Finish
 <br>
 
-<figure><img src="fin.jpg" alt=""><figcaption></figcaption></figure>
+<figure><img src="assets/fin.jpg" alt=""><figcaption></figcaption></figure>
 
 ---
 
@@ -30,13 +30,13 @@ https://github.com/TeroBsass/osint_master/releases
 **Reg**
 > Register your acc
 
-<figure><img src="reg.png" alt=""><figcaption></figcaption></figure>
+<figure><img src="assets/reg.png" alt=""><figcaption></figcaption></figure>
 
 
 
 **Commands**
 
-<figure><img src="help.png" alt=""><figcaption></figcaption></figure>
+<figure><img src="assets/help.png" alt=""><figcaption></figcaption></figure>
 
 ## Need
 What you need:
