@@ -71,7 +71,7 @@ RestartApplications=no
 ; и т.п.) в одну папку dist\mark\ — забираем её целиком, а не один файл, как
 ; раньше при onefile. recursesubdirs/createallsubdirs — чтобы _internal\ и всё,
 ; что внутри, тоже попало в {app} и корректно отслеживалось при удалении.
-Source: "dist\mark\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "dist\trolling\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: ".env"; DestDir: "{app}"; Flags: onlyifdoesntexist
 
 [Tasks]
