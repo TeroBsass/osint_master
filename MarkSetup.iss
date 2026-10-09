@@ -73,9 +73,10 @@ RestartApplications=no
 ; что внутри, тоже попало в {app} и корректно отслеживалось при удалении.
 Source: "dist\trolling\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: ".env"; DestDir: "{app}"; Flags: onlyifdoesntexist
+Source: "trolling.ico"; DestDir: "{app}"; Flags: ignoreversion
 
 [Tasks]
-Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"
+Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
 
 [Icons]
 Name: "{userdesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\trolling.ico"; Tasks: desktopicon
